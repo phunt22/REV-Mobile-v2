@@ -1,0 +1,132 @@
+# previous version of the gitignore file
+
+# node_modules/
+# .expo/
+# .vscode/
+# dist/
+# npm-debug.*
+# *.jks
+# *.p8
+# *.p12
+# *.key
+# *.mobileprovision
+# *.orig.*
+# web-build/
+
+# eas.json
+# google-services.json
+
+# .env
+
+# # macOS
+# .DS_Store
+
+# # Temporary files created by Metro to check the health of the file watcher
+# .metro-health-check*
+# node_modules
+# node_modules
+
+# more comprehensive .gitignore file
+# Node modules
+node_modules/
+
+# Expo directories
+.expo/
+.expo-shared/
+
+# VSCode settings directory
+.vscode/
+
+# Distribution directories
+dist/
+build/
+web-build/
+
+# Cache directories
+.cache/
+tmp/
+temp/
+
+# NPM debug files
+npm-debug.*
+
+# Keystore and key files
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Original files
+*.orig.*
+
+# Expo Application Services configuration
+eas.json
+
+# Google services configuration
+google-services.json
+
+# Environment variables file
+.env
+
+# macOS system files
+.DS_Store
+
+# Temporary files created by Metro to check the health of the file watcher
+.metro-health-check*
+
+# Logs
+*.log
+yarn-debug.log*
+yarn-error.log*
+npm-debug.log*
+lerna-debug.log*
+
+# React Native packager
+*.pack
+*.log.*
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+
+# Buck build system
+buck-out/
+\.buckd/
+*.keystore
+
+# Android/IntelliJ
+.idea/
+android/.gradle/
+android/app/build/
+android/build/
+android/.idea/
+android/local.properties
+android/app/app.iml
+android/app/proguard-rules.pro
+
+# ios/Xcode
+ios/Pods/
+ios/build/
+ios/DerivedData/
+ios/.idea/
+ios/.DS_Store
+ios/.vscode/
+ios/xcuserdata/
+ios/.xccheckout/
+ios/fastlane/report.xml
+ios/fastlane/Preview.html
+ios/fastlane/screenshots
+*.xcworkspace
+ios/project.xcworkspace/xcuserdata/
+!ios/project.xcworkspace/xcshareddata/
+
+# IDE specific
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Misc
+*.swp
+*.swo
