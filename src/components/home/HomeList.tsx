@@ -9,6 +9,7 @@ import { useNavigationContext } from '../../context/NavigationContext';
 import { BottomSheetSectionList, TouchableHighlight } from '@gorhom/bottom-sheet';
 import { TouchableWithoutFeedback } from 'react-native-gesture-handler';
 import { DownArrowIcon, RightArrowIcon, ViewAllArrow } from '../shared/Icons';
+import { useLocations } from '../../context/LocationsContext';
 // const [sbHeight, setsbHeight] = useState<any>(StatusBar.currentHeight)
 
 if (Platform.OS === 'android') {
@@ -39,8 +40,44 @@ const pairProducts = (products) => {
     return paired;
 }
 
+const fetchUntilMinimum = async (nav, endCursor, minCount, productIds) => {
+    let allProducts = [];
+    let hasNextPage = true;
+    let cursor = endCursor;
+
+    // adding safeguarding for infinite loops
+    let itrCount = 0;
+    const maxItr = 30;
+    while (hasNextPage && allProducts.length < minCount && itrCount < maxItr) {
+        itrCount++;
+        const { products, hasNextPage: nextPage, endCursor: newCursor } = await fetchCollection(nav, cursor, 8);
+
+        // this is where the filtering happens. Commented out as we are pulling support in this version
+        // const filteredProducts = products.filter(product => productIds.includes(product.id));
+
+        // // what about the case when straight up nothing is returned?
+
+
+        // // Handle case where filteredProducts is empty but more products are available
+        // if (filteredProducts.length === 0 && nextPage) {
+        //     cursor = newCursor;
+        //     hasNextPage = nextPage;
+        //     continue;
+        // }
+
+        allProducts = [...allProducts, ...products];
+        hasNextPage = nextPage;
+        cursor = newCursor;
+    }
+
+
+    return { products: allProducts, hasNextPage, endCursor: cursor };
+};
+
 const HomeList = ({ navigation }) => {
     const { rootNavigation } = useNavigationContext()
+
+    const { selectedLocation, productIds } = useLocations();
     // const [sectionData, setSectionData] = useState(sections);
 
     const [isLoading, setIsLoading] = useState(false);
@@ -52,8 +89,11 @@ const HomeList = ({ navigation }) => {
 
     // const [loadingStates, setLoadingStates] = useState(Array(sections.length).fill(false));
     // const [errorStates, setErrorStates] = useState(Array(sections.length).fill(''));
+    const [isChangingLocation, setIsChangingLocation] = useState<boolean>(false);
+    const [sectionsReady, setSectionsReady] = useState<boolean>(false);
 
-    const [sections, setSectionData] = useState([
+
+    const initialSections = [
         // all of the sections have a next page by default, and the endCursor object is null by default
         { title: 'Popular', data: [], nav: 'gid://shopify/Collection/456011481376', hasNextPage: true, endCursor: null },
         { title: 'Sweets', data: [], nav: 'gid://shopify/Collection/456011710752', hasNextPage: true, endCursor: null },
@@ -71,71 +111,77 @@ const HomeList = ({ navigation }) => {
         { title: 'Beer & Wine', data: [], nav: 'gid://shopify/Collection/463924003104', hasNextPage: true, endCursor: null },
         { title: 'Booze', data: [], nav: 'gid://shopify/Collection/463924134176', hasNextPage: true, endCursor: null },
         { title: 'Student Essentials', data: [], nav: 'gid://shopify/Collection/456012038432', hasNextPage: true, endCursor: null },
-        { title: 'Personal Care', data: [], nav: 'gid://shopify/Collection/456011972896', hasNextPage: true, endCursor: null },]);
+        { title: 'Personal Care', data: [], nav: 'gid://shopify/Collection/456011972896', hasNextPage: true, endCursor: null },
+    ]
+    const [sections, setSectionData] = useState(initialSections);
 
 
+
+
+
+    const clearData = () => {
+        setSectionsReady(false);
+        // setSectionData(sections.map(section => ({ ...section, data: [] })));
+        setSectionData(initialSections);
+    };
     useEffect(() => {
+        // clears the data so that we dont see it before stuff loads. 
+
+        clearData();
+
         const fetchInitialData = async () => {
             setIsLoading(true);
+            setIsChangingLocation(true);
             try {
-                // can change 4 to a larger number to render more sections. Cap at 17, though
                 const updatedData = await Promise.all(
                     sections.slice(0, 4).map(async (section) => {
-                        const { products, hasNextPage, endCursor } = await fetchCollection(section.nav, null, 8);
+                        const { products, hasNextPage, endCursor } = await fetchUntilMinimum(section.nav, null, 4, productIds);
                         return { ...section, data: products, hasNextPage, endCursor };
                     })
                 );
                 setSectionData([...updatedData, ...sections.slice(4)]);
                 setLastLoadedSectionIndex(3);
-                // setEndCursors(updatedData.map((section) => section.endCursor));
-                // setHasNextPages(updatedData.map((section) => section.hasNextPage));
             } catch (error) {
                 setErrorMessage('Error fetching data');
-                console.log('Error loading data: ', error)
+                console.log('Error loading data: ', error);
             }
             setIsLoading(false);
+            setIsChangingLocation(false);  // Set changing location to false after loading
+            setSectionsReady(true);
         }
         fetchInitialData();
-    }, []);
+    }, [selectedLocation, productIds]);
 
     const handleLoadMore = useCallback(async () => {
-        if (isVerticalLoading || lastLoadedSectionIndex > 16) { // currently have the hard coded length. Since we are only loading like 2 of the sections because of the way that useState works?
-            // console.log(sections.length)
-            // console.log('handle load more returned early')
+        if (isVerticalLoading || lastLoadedSectionIndex > 16) {
             return;
-        } // if loading no need to call
-
+        }
         setIsVerticalLoading(true);
-        // const sectionsToLoad = 2; 
         const start = lastLoadedSectionIndex + 1;
-        const end = Math.min(start + 2, sections.length); // edit to load more sections at once
-        const sectionsToLoad = sections.slice(start, end) // could be an edge case where we load too many and go out of bounds
+        const end = Math.min(start + 2, sections.length);
+        const sectionsToLoad = sections.slice(start, end);
         try {
-            // console.log('we are in the try block')
-
             const fetchedSections = await Promise.all(
                 sectionsToLoad.map(async (section) => {
-                    const { products, hasNextPage, endCursor } = await fetchCollection(section.nav, null, 8);
+                    const { products, hasNextPage, endCursor } = await fetchUntilMinimum(section.nav, section.endCursor, 4, productIds);
                     return { ...section, data: [...section.data, ...products], hasNextPage, endCursor };
                 })
-            )
-            // console.log('fetchedSections: ', fetchedSections)
+            );
             setSectionData(currentSections => {
                 const updatedSections = [...currentSections];
                 fetchedSections.forEach((newSection, index) => {
-                    const sectionIndex = start + index; // correct index to add
-                    updatedSections[sectionIndex] = newSection
-                })
+                    const sectionIndex = start + index;
+                    updatedSections[sectionIndex] = newSection;
+                });
                 return updatedSections;
-            })
-
+            });
             setLastLoadedSectionIndex(end - 1);
         } catch (e) {
-            setErrorMessage('Error fetching data')
-            console.log(e)
+            setErrorMessage('Error fetching data');
+            console.log(e);
         }
         setIsVerticalLoading(false);
-    }, [sections, isVerticalLoading, lastLoadedSectionIndex]);
+    }, [sections, isVerticalLoading, lastLoadedSectionIndex, productIds]);
 
 
 
@@ -148,7 +194,11 @@ const HomeList = ({ navigation }) => {
 
     return (
         <View style={styles.container}>
-            <FullList
+            {isChangingLocation || !sectionsReady ? (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                    <ActivityIndicator size="large" color="#4B2D83" />
+                </View>
+            ) : (<FullList
                 sections={sections}
                 onLoadMore={handleLoadMore}
                 onCollectionPress={handleCollectionPress}
@@ -160,7 +210,8 @@ const HomeList = ({ navigation }) => {
             // extraData={sectionData}
             // maintainVisibleContentPosition={true}
             // extraData={{ sections, loadingStates, errorStates }}
-            />
+            />)}
+
         </View>
     );
 };
@@ -180,11 +231,13 @@ interface FullListProps {
 }
 
 const FullList = ({ sections, onLoadMore, onCollectionPress, isVerticalLoading, setSectionData }: FullListProps) => {
+    const { productIds } = useLocations();
+
     const handleLoadMoreHorizontal = useCallback(async (sectionIndex) => {
         const section = sections[sectionIndex];
         if (section.hasNextPage) {
             try {
-                const { products, hasNextPage, endCursor } = await fetchCollection(section.nav, section.endCursor, 8);
+                const { products, hasNextPage, endCursor } = await fetchUntilMinimum(section.nav, section.endCursor, 4, productIds);
                 setSectionData((currentSections) => {
                     const updatedSections = [...currentSections];
                     updatedSections[sectionIndex] = {
@@ -194,69 +247,35 @@ const FullList = ({ sections, onLoadMore, onCollectionPress, isVerticalLoading, 
                         endCursor,
                     };
                     return updatedSections;
-                })
-
+                });
             } catch (e) {
-                console.log('Error fetching more data')
+                console.log('Error fetching more data');
             }
-
         }
-
-    }, [sections])
+    }, [sections, productIds]);
 
     // this renders a section (horizontal row)
     const renderSectionItem = ({ item, index }) => {
         const pairedData = pairProducts(item.data);
         return (
-            <View style={{ flex: 1, borderWidth: 2, borderColor: '#4B2D83', marginLeft: 15, borderRadius: 30, width: '105%', paddingRight: 30, marginBottom: 28, }} >
-                <View
-                    style={{ borderRadius: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 5, paddingHorizontal: 20, position: 'absolute', top: -20, left: 4, zIndex: 11, backgroundColor: 'white' }}
-                // onPress={() => onCollectionPress(item.nav)}
-                >
+            <View style={{ flex: 1, borderWidth: 2, borderColor: '#4B2D83', marginLeft: 15, borderRadius: 30, width: '105%', paddingRight: 30, marginBottom: 28 }}>
+                <View style={{ borderRadius: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 5, paddingHorizontal: 20, position: 'absolute', top: -20, left: 4, zIndex: 11, backgroundColor: 'white' }}>
                     <Text style={{ fontSize: 24, fontWeight: '900', fontStyle: 'italic', color: '#4B2D83' }}>{item.title}</Text>
                 </View>
-
-                {/* see more section */}
-                <TouchableOpacity onPress={() => onCollectionPress(item.nav)}
-                    style={{ borderWidth: 2, borderColor: '#4B2D83', borderRadius: 30, display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-evenly', top: -12, position: 'absolute', right: 40, zIndex: 1, backgroundColor: 'white', width: 100, height: 23, }}
-                // onPress={() => onCollectionPress(item.nav)}
-                >
+                <TouchableOpacity onPress={() => onCollectionPress(item.nav)} style={{ borderWidth: 2, borderColor: '#4B2D83', borderRadius: 30, display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-evenly', top: -12, position: 'absolute', right: 40, zIndex: 1, backgroundColor: 'white', width: 100, height: 23 }}>
                     <Text style={{ fontSize: 12, fontWeight: '900', fontStyle: 'italic', color: '#4B2D83' }}>View all</Text>
-                    {/* <ViewAllArrow size={6} color={'#4B2D83'} /> */}
-
                 </TouchableOpacity>
-                {/* loadingStates[index] ? (
-                <View style={styles.loadingContainer}>
-                    <ActivityIndicator color='#4B2D83' />
-                </View>
-            ) : errorStates[index] ? (
-                <View style={styles.errorContainer}>
-                    <Text style={styles.errorText}>{errorStates[index]}</Text>
-                </View>
-            )
-             :  */}
                 {item.data.length > 0 ? (
-                    // <FlatList
-                    //     data={item.data}
-                    //     renderItem={renderProductItem}
-                    //     keyExtractor={(product) => product.id.toString()}
-                    //     horizontal
-                    //     showsHorizontalScrollIndicator={false}
-                    //     onEndReached={() => onLoadMore(index)}
-                    //     onEndReachedThreshold={0.5}
-                    //     contentContainerStyle={{}}
-                    // />
                     <FlatList
                         data={pairedData}
                         renderItem={renderProductItem}
                         keyExtractor={(product, index) => index.toString()}
                         horizontal
                         showsHorizontalScrollIndicator={false}
-                        // onEndReached={onLoadMore}
                         onEndReached={() => handleLoadMoreHorizontal(index)}
                         onEndReachedThreshold={0.8}
                         contentContainerStyle={{}}
-                        ListHeaderComponent={<View style={{ height: '100%', width: 10, }}></View>}
+                        ListHeaderComponent={<View style={{ height: '100%', width: 10 }}></View>}
                         ListFooterComponent={
                             item.hasNextPage && item.data.length > 0 ? (
                                 <View style={styles.footerContainer}>
@@ -264,24 +283,25 @@ const FullList = ({ sections, onLoadMore, onCollectionPress, isVerticalLoading, 
                                 </View>
                             ) : null
                         }
-
                         maintainVisibleContentPosition={{
                             minIndexForVisible: 0,
                             autoscrollToTopThreshold: 0,
                         }}
                     />
-                ) : (
+                ) : !item.hasNextPage ?
                     <View style={styles.emptyContainer}>
-                        <ActivityIndicator color='#4B2D83' />
+                        <Text>No products available</Text>
+                    </View> :
+                    <View style={styles.emptyContainer}>
+                        <ActivityIndicator />
                     </View>
-                )}
-            </View >
-        )
+                }
+            </View>
+        );
     };
 
     const renderProductItem = useCallback(({ item }) => (
-        <View style={{ width: 180, marginRight: 25, }}>
-            {/* <MemoizedProductCard data={item} /> */}
+        <View style={{ width: 180, marginRight: 25 }}>
             <ProductCardPair item1={item[0]} item2={item[1]} />
         </View>
     ), []);
@@ -292,15 +312,8 @@ const FullList = ({ sections, onLoadMore, onCollectionPress, isVerticalLoading, 
             data={sections}
             renderItem={renderSectionItem}
             keyExtractor={(item) => item.title}
-            // initialNumToRender={4}
-            onEndReached={() => {
-                // console.log('onEndReached triggered')
-                onLoadMore()
-            }
-            }
+            onEndReached={onLoadMore}
             showsVerticalScrollIndicator={false}
-            // how many screen lengths from the bottom until you fecth new data
-            // for reference, 1 section is about 0.75 screen lengths. 
             onEndReachedThreshold={30}
         />
     );
@@ -339,7 +352,7 @@ const styles = StyleSheet.create({
     emptyContainer: {
         alignItems: 'center',
         justifyContent: 'center',
-        height: 420,
+        height: 250,
         paddingHorizontal: 16,
     },
     emptyText: {

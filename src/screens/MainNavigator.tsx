@@ -15,6 +15,7 @@ import LoginStackNavigator from './LoginStackNavigator'
 import DiscountCode from './DiscountCode'
 import { Text, TouchableOpacity } from 'react-native'
 import Cart from './Cart'
+import OrderConfirmation from './OrderConfirmation'
 
 const Stack = createNativeStackNavigator<StackParamList>()
 
@@ -148,6 +149,7 @@ const MainNavigator = () => {
             ),
           }}
         />
+
         <Stack.Screen
           name='Payment'
           component={Payment}
@@ -199,6 +201,16 @@ const MainNavigator = () => {
 
 
             ),
+          }}
+        />
+        <Stack.Screen
+          name='OrderConfirmation'  // Add OrderConfirmation screen
+          component={OrderConfirmation}
+          options={{
+            headerShadowVisible: false,
+            headerStyle: { backgroundColor: theme.colors.background },
+            headerTitle: () => (<></>),
+            headerLeft: () => (<></>)
           }}
         />
       </Stack.Navigator>

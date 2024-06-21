@@ -322,6 +322,7 @@ const OnboardingPhone = ({ navigation, route }: Props) => {
                                 </View>
                             </View>
                             {codeSent ? (
+                                // {true ? (
                                 <View style={{
                                     width: '75%', flexDirection: 'row', display: 'flex', justifyContent: 'space-between', marginTop: 12
                                 }} >
@@ -394,8 +395,10 @@ const OnboardingPhone = ({ navigation, route }: Props) => {
                         // left: 10,
 
                         // marginTop: 60
+                        height: 30,
+                        alignItems: 'center'
                     }}>
-                        <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', width: '70%' }}>
+                        <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', width: '70%', }}>
                             {/* eye icon */}
                             <LockIcon size={30} color='black' />
                             <Text style={{ color: 'black', fontSize: 14, marginTop: 4, marginLeft: 4 }}>We never share this with anyone.</Text>

@@ -1,0 +1,11 @@
+{
+  "version": "1.0",
+  "apis": [
+    {
+      "identifier": "shipday",
+      "source": "@shipday/v1.0#17aago1kkyngfhyi",
+      "integrity": "sha512-pwwdNplqXghynS9w4qIFW2wqmZAMCszRAypv7sqi3iCX6TUKsPzUF0tuYG0sh5b8jkktFDUWHwbHDXGkqX/KHA==",
+      "installerVersion": "6.1.1"
+    }
+  ]
+}

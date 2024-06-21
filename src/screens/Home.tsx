@@ -24,6 +24,7 @@ import { Product } from '../types/dataTypes'
 import { ScrollView } from 'react-native-gesture-handler'
 import HomeList from '../components/home/HomeList'
 import { useStoreClosed } from '../context/StoreClosedContext'
+import { useLocations } from '../context/LocationsContext'
 
 // import { useNavigationContext } from '../context/NavigationContext'
 
@@ -52,11 +53,16 @@ const Home = ({ navigation }: Props) => {
 
   const [suggestionsLoading, setSuggestionsLoading] = useState<Boolean>(false);
   const [productRecommendations, setProductRecommendations] = useState<any>([]);
+  const [filteredProductRecommendations, setFilteredProductRecommendations] = useState<any>([]);
 
   const { StatusBarManager } = NativeModules
   const [sbHeight, setsbHeight] = useState<any>(StatusBar.currentHeight)
 
+  // app is closed, and using locations
   const { userContinueAnyways } = useStoreClosed();
+  const { selectedLocation, isLoading: isLoadingLocations, inventoryLevels, productIds } = useLocations();
+  const [filteredPastItems, setFilteredPastItems] = useState<any[] | null>();
+
 
   useEffect(() => {
     if (Platform.OS === "ios") {
@@ -65,6 +71,10 @@ const Home = ({ navigation }: Props) => {
       })
     }
   }, [])
+
+  // useEffect(() => {
+  //   console.log(inventoryLevels.length)
+  // }, [inventoryLevels])
 
   // useEffect(() => {
   //   if (!userToken && rootNavigation && !userContinueAnyways) {
@@ -165,7 +175,7 @@ const Home = ({ navigation }: Props) => {
 
     // popular products is currently hardcoded!!!!!!!!
     try {
-      const productIds = [
+      const popularProductIds = [
 
         "8837273714976",
         "8738456109344",
@@ -217,7 +227,7 @@ const Home = ({ navigation }: Props) => {
         "8651303616800",
       ];
 
-      const queries = productIds.map(id => getProductInfoQuery(id));
+      const queries = popularProductIds.map(id => getProductInfoQuery(id));
       const responses = await Promise.all(queries.map(query => storefrontApiClient(query)));
       const products = responses.map((response: { data: any }) => response.data.product);
       // if (responses.errors && responses.errors.length != 0) {
@@ -324,6 +334,11 @@ const Home = ({ navigation }: Props) => {
 
         const recentItems = Array.from(recentItemsMap.values()); // array from value set
         setPastItems(recentItems);
+
+        // filtered version
+        const filteredPI = recentItems.filter(item => productIds.includes(item.id))
+        setFilteredPastItems(filteredPI);
+
         setIsLoading(false);
 
         // let productCounts = {};
@@ -356,79 +371,6 @@ const Home = ({ navigation }: Props) => {
     }
   }
 
-  const fetchCollection = async (collectionID: string) => {
-    setIsLoading(true)
-    setErrorMessage('')
-
-    try {
-      const query = `query {
-        collection(id: "${collectionID}") {
-          id
-          title
-          products(first: 100) {
-            nodes {
-              id
-              title
-              description
-              vendor
-              availableForSale
-              compareAtPriceRange {
-                minVariantPrice {
-                  amount
-                  currencyCode
-                }
-              }
-              priceRange {
-                minVariantPrice {
-                  amount
-                  currencyCode
-                }
-              }
-              images(first: 10) {
-                nodes {
-                  url
-                  width
-                  height
-                }
-              }
-              options {
-                id
-                name
-                values
-              }
-              variants(first: 200) {
-                nodes {
-                  availableForSale
-                  selectedOptions {
-                    value
-                  }
-                }
-              }
-            }
-          }
-        }
-      }`
-
-      const response: any = await storefrontApiClient(query)
-
-      if (response.errors && response.errors.length != 0) {
-        setIsLoading(false)
-        throw response.errors[0].message
-      }
-
-      const products = response.data.collection.products.nodes
-      setIsLoading(false)
-      return products;
-      // console.log(products);
-
-    } catch (e) {
-      setErrorMessage(e)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-
   const fetchRecommendations = async () => {
     setSuggestionsLoading(true);
     if (!pastItems) {
@@ -445,8 +387,17 @@ const Home = ({ navigation }: Props) => {
       // Flatten the results and deduplicate
       const flattenedRecommendations = recommendationResults.flat();
       const uniqueRecommendations = deduplicateRecommendations(flattenedRecommendations);
+
+      // shuffle the order
+      const shuffledRecs = shuffleArray(uniqueRecommendations);
+
       // console.log('unique recs', uniqueRecommendations);
-      setProductRecommendations(Array.from(uniqueRecommendations));
+      const prodRecs = Array.from(shuffledRecs)
+      setProductRecommendations(prodRecs);
+
+      // this is when we filter the products
+      // const filteredProdRecs = prodRecs.filter(prod => productIds.includes(prod.id))
+      // setFilteredProductRecommendations(filteredProdRecs)
     } catch (e) {
       setErrorMessage(e)
     } finally {
@@ -467,6 +418,18 @@ const Home = ({ navigation }: Props) => {
     return Array.from(unique.values());
   }
 
+  function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+  }
+
+
+
+
+  // method to get recommendations based on the user's past orders
   const getProductRecommendations = async (id) => {
 
     const query = `query getProductRecommendations {
@@ -520,6 +483,8 @@ const Home = ({ navigation }: Props) => {
     return response.data.productRecommendations.slice(0, 6) as Product[];
   }
 
+
+  // fetches products from the explore category
   const fetchExploreProducts = async () => {
     setIsLoading(true)
     setErrorMessage('')
@@ -593,6 +558,8 @@ const Home = ({ navigation }: Props) => {
       setIsLoading(false)
     }
   }
+
+
 
   const getCustomerAddress = async () => {
     setIsLoading(true)
@@ -748,12 +715,20 @@ const Home = ({ navigation }: Props) => {
 
   // THIS IS WHERE ALL OF THE PRODUCTS ARE FETCHED
   useEffect(() => {
-    fetchUserOrders()
-    fetchPopularProducts()
-    fetchPastItems()
-    fetchExploreProducts()
-    getCustomerAddress()
-    createSectionData();
+    try {
+      fetchUserOrders()
+      fetchPopularProducts()
+      fetchPastItems()
+      fetchExploreProducts()
+      getCustomerAddress()
+      createSectionData();
+    } catch (e) {
+      setErrorMessage(e);
+      console.log(e)
+    } finally {
+      // setIsLoading(false)
+    }
+
 
     // fetchRecommendations();
   }, [userToken, userOrders])
@@ -813,6 +788,7 @@ const Home = ({ navigation }: Props) => {
 
 
     const ForYouHorizontalList = function () {
+
       return (
         <>
           <View style={{ borderRadius: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 5, paddingHorizontal: 20, position: 'absolute', top: -20, left: 4, zIndex: 11, backgroundColor: 'white' }}>
@@ -825,28 +801,44 @@ const Home = ({ navigation }: Props) => {
           >
             <Text style={{ fontSize: 12, fontWeight: '900', fontStyle: 'italic', color: '#4B2D83' }}>View all</Text>
           </View> */}
-          {pastItems && pastItems.length > 0 ? (<FlatList
-            data={pastItems.filter(item => item != null)}
-            // data={data}
-            renderItem={({ item }) =>
-            (<View style={{
-              width: 180, padding: 5, marginRight: 25, paddingVertical: 15,
-            }}>
-              <ProductCard data={item} />
+
+          {/* do this based off of the product recommendations */}
+          {/* filteredProductRecommendations */}
+
+
+          {/* {filteredPastItems && filteredPastItems.length > 0 ? (
+            <FlatList
+              data={filteredPastItems.filter(item => item != null)} */}
+          {pastItems && pastItems.length > 0 ? (
+            <FlatList
+              // filter past items so that there are no non-null items (i.e. Tip)
+              data={pastItems.filter(item => item != null)}
+
+
+
+              // data={data}
+              renderItem={({ item }) => {
+                return (
+                  <View style={{
+                    width: 180, padding: 5, marginRight: 25, paddingVertical: 15,
+                  }}>
+                    <ProductCard data={item} />
+                  </View>)
+              }
+              }
+              // <ProductCard data={item} />}
+              horizontal={true}
+              keyboardDismissMode='on-drag'
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 10 }}
+              style={{ borderWidth: 2, marginLeft: 0, borderColor: '#4B2D83', borderTopLeftRadius: 36, borderBottomLeftRadius: 36, marginRight: -5, zIndex: -1 }}
+              keyExtractor={item => item.id}
+            // keyExtractor={(item) => item.id.toString()}
+            />) : (<View style={{ borderWidth: 2, borderColor: '#4B2D83', borderRadius: 30, width: '110%', marginLeft: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 5, position: 'absolute', top: -8, left: 4, backgroundColor: 'white', height: 250, zIndex: 1, marginTop: 10, }}>
+              <Text style={{ width: '60%', marginRight: '15%', textAlign: 'center', fontWeight: '300' }}>
+                Products from your previous orders that are available in this store will show up here!
+              </Text>
             </View>)}
-            // <ProductCard data={item} />}
-            horizontal={true}
-            keyboardDismissMode='on-drag'
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 10 }}
-            style={{ borderWidth: 2, marginLeft: 0, borderColor: '#4B2D83', borderTopLeftRadius: 36, borderBottomLeftRadius: 36, marginRight: -5, zIndex: -1 }}
-            keyExtractor={item => item.id}
-          // keyExtractor={(item) => item.id.toString()}
-          />) : (<View style={{ borderWidth: 2, borderColor: '#4B2D83', borderRadius: 30, width: '110%', marginLeft: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 5, position: 'absolute', top: -8, left: 4, backgroundColor: 'white', height: 250, zIndex: 1, marginTop: 10, }}>
-            <Text style={{ width: '60%', marginRight: '15%', textAlign: 'center', fontWeight: '300' }}>
-              Products from your previous orders will show up here!
-            </Text>
-          </View>)}
         </>
       )
     }
@@ -858,10 +850,12 @@ const Home = ({ navigation }: Props) => {
       <View style={{ paddingBottom: sbHeight + 330 }}>
         <FlatList
           // may need to edit marginBottom to get things all good
+
           ListHeaderComponent={<View style={{ marginTop: 10, width: '110%', marginBottom: pastItems && pastItems.length > 0 ? (40) : (280) }}><ForYouHorizontalList /></View>}
 
           // data here. Depends on how it is passed in 
           data={data.filter(item => item != null)}
+          //  && productIds.includes(item)
           renderItem={({ item }) => <ProductCardMemo data={item} />}
           keyExtractor={item => item.id.toString()}// Make sure to have a keyExtractor for unique keys
           ItemSeparatorComponent={ItemSeparator}
@@ -1045,20 +1039,19 @@ const Home = ({ navigation }: Props) => {
     );
   };
 
+
   return (
     <View style={{ flex: 0 }}>
       {isLoading ? (
         <View style={{ height: '100%', justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator style={{ alignSelf: 'center' }} />
+          <ActivityIndicator style={{ alignSelf: 'center', }} size='large' color={config.primaryColor} />
         </View>
 
       ) : (
         <>
           <View style={{ width: '100%' }}>
             <View style={{ flexDirection: 'column', justifyContent: 'center', width: '100%' }}>
-
               <TouchableOpacity style={styles.addressBox} onPress={() => bottomSheetRef.current?.expand()}>
-
                 {selectedAddress && Object.keys(selectedAddress).length > 0 && userToken ? // if there is a selected address
                   (
                     <View style={{
@@ -1171,9 +1164,15 @@ const Home = ({ navigation }: Props) => {
 
             </View>
             {selectedMode === 'explore' ?
-              <View style={{ display: 'flex', height: '100%', marginTop: 0, paddingBottom: sbHeight + 320 }}><HomeList navigation={navigation} /></View>
+              <View style={{ display: 'flex', height: '100%', marginTop: 0, paddingBottom: sbHeight + 320 }}>
+                <HomeList navigation={navigation} />
+              </View>
 
-              : <View style={{ paddingTop: 10 }}><ForYouList data={(userOrders > 1 && productRecommendations ? productRecommendations : popularProducts)} /></View>}
+              : <View style={{ paddingTop: 10 }}>
+                {/* <ForYouList data={(userOrders > 1 && filteredProductRecommendations ? filteredProductRecommendations : { popularProducts })} /> */}
+                <ForYouList data={(userOrders > 1 && productRecommendations ? productRecommendations : { popularProducts })} />
+
+              </View>}
 
           </View>
 

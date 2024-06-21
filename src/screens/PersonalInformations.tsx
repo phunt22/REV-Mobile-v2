@@ -448,8 +448,8 @@ const PersonalInformations = ({ navigation }: Props) => {
                   //   <Text style={styles.buttonText}>Change Personal Information</Text>
                   // </TouchableOpacity>
                   <TouchableOpacity onPress={changeInfo}
-                    style={{ backgroundColor: '#4B2D83', paddingHorizontal: 100, paddingVertical: 12, maxWidth: '90%', borderRadius: 20, marginTop: 4, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                    <Text style={{ color: 'white', fontSize: 14, fontWeight: '800' }} numberOfLines={1}>
+                    style={{ backgroundColor: '#4B2D83', width: '90%', height: 50, paddingHorizontal: 100, paddingVertical: 12, maxWidth: '90%', borderRadius: 50, marginTop: 4, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                    <Text style={{ color: 'white', fontSize: 18, fontWeight: '800' }} numberOfLines={1}>
                       Confirm
                     </Text>
                   </TouchableOpacity>

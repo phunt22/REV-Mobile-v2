@@ -36,6 +36,8 @@ import { useStoreClosed } from '../context/StoreClosedContext';
 import { FontAwesome } from '@expo/vector-icons';
 import { config } from '../../config';
 import { useAuthContext } from '../context/AuthContext';
+import { useLocations } from '../context/LocationsContext';
+import { adminApiClient } from '../utils/checkIfPasswordProtected';
 
 type Props = NativeStackScreenProps<SearchStackParamList, 'Search'>
 
@@ -47,11 +49,19 @@ const Search = ({ navigation }: Props) => {
   const [products, setProducts] = useState<Product[]>([])
   const [collections, setCollections] = useState<any[]>([]);
 
+  const [error, setError] = useState(null)
+
   const { userContinueAnyways } = useStoreClosed();
   const { userToken } = useAuthContext();
   const { rootNavigation } = useNavigationContext()
 
+  const { locations, selectedLocation, inventoryLevels, productIds, selectLocation, isLoading: isLocationsLoading, error: locationsError } = useLocations();
 
+
+  // useEffect(() => {
+  //   console.log(inventoryLevels.length)
+  //   console.log(inventoryLevels[0])
+  // }, [inventoryLevels])
 
   useEffect(() => {
     if (userContinueAnyways) {
@@ -95,66 +105,74 @@ const Search = ({ navigation }: Props) => {
     }
   }, [userContinueAnyways, userToken])
 
-  const fetchInitialProducts = async () => {
-    setIsLoading(true)
-    setErrorMessage('')
 
-    const query = `{
-      products(first: 64) {
-        nodes {
-          id
-          title
-          description
-          vendor
-          availableForSale
-          options {
-            id
-            name 
-            values
-          }
-          priceRange {
-            minVariantPrice {
-              amount
-              currencyCode
-            }
-          }
-          compareAtPriceRange {
-            minVariantPrice {
-              amount
-              currencyCode
-            }
-          }
-          variants(first:200) {
-            nodes {
-              availableForSale
-              selectedOptions {
-                value
+  const fetchProductsByInventoryItemIds = async (inventoryItemIds) => {
+    const query = `
+      query getProductsByInventoryItemIds($ids: [ID!]!) {
+        nodes(ids: $ids) {
+          ... on InventoryItem {
+            variants(first: 200) {
+              edges {
+                node {
+                  product {
+                    id
+                    title
+                    description
+                    vendor
+                    availableForSale
+                    options {
+                      id
+                      name
+                      values
+                    }
+                    priceRange {
+                      minVariantPrice {
+                        amount
+                        currencyCode
+                      }
+                    }
+                    compareAtPriceRange {
+                      minVariantPrice {
+                        amount
+                        currencyCode
+                      }
+                    }
+                    images(first: 10) {
+                      edges {
+                        node {
+                          url
+                          width
+                          height
+                        }
+                      }
+                    }
+                  }
+                }
               }
-            }
-          }
-          images(first: 10) {
-            nodes {
-              url
-              width
-              height
             }
           }
         }
       }
-    }`
+    `;
 
-    const response: any = await storefrontApiClient(query)
+    try {
+      const response: any = await adminApiClient(query, { ids: inventoryItemIds });
+      if (response.errors) {
+        console.error("Error fetching products:", response.errors);
+        throw new Error(response.errors[0].message);
+      }
 
-    if (response.errors && response.errors.length != 0) {
-      setIsLoading(false)
-      throw response.errors[0].message
+      const products = response.data.nodes.flatMap(node => node.variants.edges.map(edge => edge.node.product));
+      setProducts(products);
+    } catch (error) {
+      console.error("Error:", error);
+      setError(error.message);
+    } finally {
+      setIsLoading(false);
     }
+  };
 
-    setInitialProducts(response.data.products.nodes as Product[])
-    setProducts(response.data.products.nodes as Product[]) //
 
-    setIsLoading(false)
-  }
 
   const fetchCollections = async () => {
     setIsLoading(true);
@@ -183,7 +201,6 @@ const Search = ({ navigation }: Props) => {
       setIsLoading(false);
       throw response.errors[0].message;
     }
-
     setCollections(response.data.collections.edges.map((edge: any) => edge.node));
 
     setIsLoading(false);
@@ -288,6 +305,9 @@ query getProductDetails($id: ID!) {
   };
 
 
+
+
+  // old search
   const search = async () => {
     setIsLoading(true);
     setErrorMessage('');
@@ -332,8 +352,36 @@ query getProductDetails($id: ID!) {
         return;
       }
 
-      // Assuming the API call is successful and data is retrieved properly
+      // // Assuming the API call is successful and data is retrieved properly
       const productIds = searchResponse.data.search.edges.map(edge => edge.node.id);
+
+      // Filter products based on product IDs from inventory levels
+
+      // we want to check if the items returned in the search are in the productIds array
+
+
+      // console.log(searchResponse.data.search.edges)
+      // const filteredProducts = searchResponse.data.search.edges.filter(product => productIds.includes(product.node));
+
+
+      // searchResponse.data.search.edges.map(product => console.log(product.node.id))
+      // searchResponse.data.search.edges.map(product => productIds.includes(product.node.id))
+
+      // this is where the magic happens!
+      // products are filtered against the current stores inventory
+      // commented out because we are pulling support for multiple locations
+      // const filteredProducts = [];
+      // searchResponse.data.search.edges.map(product => {
+      //   if (productIds.includes(product.node.id)) {
+      //     filteredProducts.push(product.node.id)
+      //   }
+      // })
+
+
+      // console.log(product.node.id))
+
+
+      // console.log(filteredProducts)
 
       // fetch more details
       const detailedProducts = await fetchDetailedProductInfo(productIds);
@@ -354,211 +402,6 @@ query getProductDetails($id: ID!) {
       setIsLoading(false);
     }
   };
-
-  // Optional: Method to fetch detailed product info
-  // const fetchDetailedProductInfo = async (productIds) => {
-  //   return Promise.all(productIds.map(id => {
-  //     // Here, use the GET_PRODUCT_DETAILS_QUERY to fetch details for each product by ID
-  //     // The GET_PRODUCT_DETAILS_QUERY needs to be defined and set up to make the correct API calls
-  //   }));
-  // }
-
-
-  //   const search = async () => {
-  //     setIsLoading(true)
-  //     setErrorMessage('')
-  //     const SEARCH_PRODUCTS_QUERY = `query searchProducts($query: String!, $first: Int) {
-  //   search(query: $query, first: $first, types: PRODUCT) {
-  //     edges {
-  //       node {
-  //         ... on Product {
-  //           id
-  //           title
-  //           tags
-  //           vendor
-  //           description
-  //           availableForSale
-  //           priceRange {
-  //             minVariantPrice {
-  //               amount
-  //               currencyCode
-  //             }
-  //           }
-  //         }
-  //       }
-  //     }
-  //   }
-  // }`;
-
-  //     const GET_PRODUCT_DETAILS_QUERY = `query getProductDetails($id: ID!) {
-  //   node(id: $id) {
-  //     ... on Product {
-  //       id
-  //       title
-  //       description
-  //       vendor
-  //       availableForSale
-  //       options {
-  //         id
-  //         name
-  //         values
-  //       }
-  //       priceRange {
-  //         minVariantPrice {
-  //           amount
-  //           currencyCode
-  //         }
-  //       }
-  //       compareAtPriceRange {
-  //         minVariantPrice {
-  //           amount
-  //           currencyCode
-  //         }
-  //       }
-  //       variants(first: 200) {
-  //         nodes {
-  //           availableForSale
-  //           selectedOptions {
-  //             value
-  //           }
-  //         }
-  //       }
-  //       images(first: 10) {
-  //         nodes {
-  //           url
-  //           width
-  //           height
-  //         }
-  //       }
-  //     }
-  //   }
-  // }`;
-
-  //     const variables = { searchInput, 25 }
-
-  //     const searchResponse: any = await storefrontApiClient(SEARCH_PRODUCTS_QUERY, variables);
-
-  //     if (searchResponse.errors) {
-  //       console.error("Search API error:", searchResponse.errors);
-  //       throw new Error("Failed to fetch products from search.");
-  //     }
-
-
-
-
-
-  //     const queryString = `title:*${searchInput}* OR tags:*${searchInput}* OR description:*${searchInput}*`;
-  //     //   const query = `{
-  //     //   products(first: 64, query: "${queryString}") {
-  //     //     nodes {
-  //     //       id
-  //     //       title
-  //     //       description
-  //     //       vendor
-  //     //       availableForSale
-  //     //       options {
-  //     //         id
-  //     //         name
-  //     //         values
-  //     //       }
-  //     //       priceRange {
-  //     //         minVariantPrice {
-  //     //           amount
-  //     //           currencyCode
-  //     //         }
-  //     //       }
-  //     //       compareAtPriceRange {
-  //     //         minVariantPrice {
-  //     //           amount
-  //     //           currencyCode
-  //     //         }
-  //     //       }
-  //     //       variants(first:200) {
-  //     //         nodes {
-  //     //           availableForSale
-  //     //           selectedOptions {
-  //     //             value
-  //     //           }
-  //     //         }
-  //     //       }
-  //     //       images(first: 10) {
-  //     //         nodes {
-  //     //           url
-  //     //           width
-  //     //           height
-  //     //         }
-  //     //       }
-  //     //     }
-  //     //   }
-  //     // }`;
-
-  //     const query = `searchProducts($query: String!, $first: Int) {
-  //     search(query: $query, first: $first, types: PRODUCT) {
-  //       edges {
-  //         node {
-  //           ... on Product {
-  //             id
-  //             title
-  //             tags
-  //           }
-  //         }
-  //       }
-  //     }
-  //   }`
-  //     const variables = { searchInput }
-
-
-  //     // const query = `{
-  //     //   products(first: 64, query: "title:${searchInput}*") {
-  //     //     nodes {
-  //     //       id
-  //     //       title
-  //     //       description
-  //     //       vendor
-  //     //       availableForSale
-  //     //       options {
-  //     //         id
-  //     //         name
-  //     //         values
-  //     //       }
-  //     //       priceRange {
-  //     //         minVariantPrice {
-  //     //           amount
-  //     //           currencyCode
-  //     //         }
-  //     //       }
-  //     //       compareAtPriceRange {
-  //     //         minVariantPrice {
-  //     //           amount
-  //     //           currencyCode
-  //     //         }
-  //     //       }
-  //     //       variants(first:200) {
-  //     //         nodes {
-  //     //           availableForSale
-  //     //           selectedOptions {
-  //     //             value
-  //     //           }
-  //     //         }
-  //     //       }
-  //     //       images(first: 10) {
-  //     //         nodes {
-  //     //           url
-  //     //           width
-  //     //           height
-  //     //         }
-  //     //       }
-  //     //     }
-  //     //   }
-  //     // }`
-
-  //     const response: any = await storefrontApiClient(query, variables)
-
-
-  //     setProducts(response.data.products.nodes as Product[])
-
-  //     setIsLoading(false)
-  //   }
 
   useEffect(() => {
     if (searchInput.trim().length > 0) {
@@ -725,6 +568,7 @@ query getProductDetails($id: ID!) {
           onChangeText={(text) => setSearchInput(text)}
           value={searchInput}
           autoCapitalize='none'
+          autoCorrect={false}
         />
         {searchInput && searchInput.length !== 0 ? (<TouchableOpacity onPress={() => setSearchInput('')}
           style={{ width: 25, height: 25, borderRadius: 20, backgroundColor: 'gray', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 2 }}
@@ -748,7 +592,9 @@ query getProductDetails($id: ID!) {
                 products.length !== 0 ? (
                   <FlatList
                     data={products}
-                    renderItem={({ item }) => <ProductCard data={item} />}
+                    renderItem={({ item }) => {
+                      return (<ProductCard data={item} />)
+                    }}
                     keyboardDismissMode="on-drag"
                     showsVerticalScrollIndicator={false}
                     numColumns={2}

@@ -13,6 +13,7 @@ export type StackParamList = {
     screen: keyof SearchStackParamList;
     params?: SearchStackParamList[keyof SearchStackParamList];
   };
+  OrderConfirmation: undefined
 }
 
 export type BottomTabParamList = {
@@ -47,6 +48,7 @@ export type CartStackParamList = {
   ShippingOptions: { checkoutId: string, availableShippingRates: AvailableShippingRatesType }
   Payment: { webUrl: string, checkoutId: string, selectedRateHandle: string }
   DiscountCode: { checkoutId: string }
+  OrderConfirmation: undefined
 }
 
 export type ProfileStackParamList = {

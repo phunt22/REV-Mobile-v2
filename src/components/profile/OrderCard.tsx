@@ -66,12 +66,12 @@ const OrderCard = ({ data }: { data: Order }) => {
           </View>
 
           {/* items */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingTop: 8 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingTop: 8, }}>
             <Text style={styles.leftText}>
               Items
             </Text>
-            <View style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-              {data.lineItems.nodes.map((item, index) => (<Text style={styles.rightText}>
+            <View style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', maxWidth: '70%' }}>
+              {data.lineItems.nodes.map((item, index) => (<Text style={styles.rightText} numberOfLines={1}>
                 {item.title}
               </Text>))}
             </View>
@@ -115,6 +115,7 @@ const styles = StyleSheet.create({
   rightText: {
     fontSize: 14,
     // fontWeight: '600',
-    color: '#555555'
+    color: '#555555',
+
   }
 })

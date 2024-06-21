@@ -27,3 +27,5 @@ export const storefrontApiClient = async (query: string, variables: any | null =
   })
   return p
 }
+
+

@@ -1,5 +1,5 @@
-import { View, Text, Image, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Dimensions, NativeModules, StatusBar } from 'react-native'
-import { useEffect, useRef, useState } from 'react'
+import { View, Text, Image, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Dimensions, NativeModules, StatusBar, Alert, Linking } from 'react-native'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CartStackParamList } from '../types/navigation'
 import { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { theme } from '../constants/theme'
@@ -18,11 +18,19 @@ import logo from '../assets/logo.png'
 import { ChevronDownIcon, PinIcon, RightArrowIcon } from '../components/shared/Icons'
 import * as WebBrowser from 'expo-web-browser'
 import { LinearGradient } from 'expo-linear-gradient';
-import { checkIfPasswordProtected } from '../utils/checkIfPasswordProtected'
+import { adminApiClient, checkIfPasswordProtected, createOrder } from '../utils/checkIfPasswordProtected'
 import { config } from '../../config'
 import { useCartContext } from '../context/CartContext'
+import { useLocations } from '../context/LocationsContext'
+import PriceInput from '../components/cart/PriceInput'
+import CartStackNavigator from './StackNavigators/CartStackNavigator'
+import { handleURLCallback, usePaymentSheet } from '@stripe/stripe-react-native'
+import axios from 'axios'
 
-
+import { REACT_APP_SHIPDAY_API_KEY, REACT_APP_FIREBASE_URL } from '@env'
+// const shipday = require('shipday/integration');
+// const OrderQueryRequest = require('shipday/integration/order/order.query.request');
+// const OrderState = require('shipday/integration/order/types/order.state');
 
 
 
@@ -30,6 +38,7 @@ import { useCartContext } from '../context/CartContext'
 type Props = NativeStackScreenProps<CartStackParamList, 'ShippingAddress'>
 
 const ShippingAddress = ({ route, navigation }: Props) => {
+  const { selectedLocation } = useLocations(); // Get selected location
   const scrollViewRef = useRef<ScrollView>(null)
   const { userToken } = useAuthContext()
   const bottomSheetRef = useRef<BottomSheet>(null);
@@ -39,6 +48,29 @@ const ShippingAddress = ({ route, navigation }: Props) => {
   const { resetCart } = useCartContext();
   const [sbHeight, setsbHeight] = useState<any>(StatusBar.currentHeight)
   const [isClosed, setIsClosed] = useState<boolean>(false)
+  const [initializing, setInitializing] = useState<boolean>(true)
+  const { cartItems, getTotalPrice } = useCartContext();
+
+  const [discountCode, setDiscountCode] = useState<string>('')
+
+  const [selectedDeliveryMethod, setSelectedDeliveryMethod] = useState<string>('Delivery')
+
+  // const API_URL = process.env.REACT_APP_FIREBASE_URL;
+
+  useEffect(() => {
+    if (!selectedLocation.isOpen) {
+      navigation.goBack()
+    }
+
+  }, [selectedLocation])
+
+  // in the future, tax data could be stored in location objects
+  // will return them individually which is pretty chill. 
+  const calculateTax = (total) => {
+    const washTax = parseFloat(total) * 0.065;
+    const seaTax = parseFloat(total) * 0.0385;
+    return (washTax + seaTax).toFixed(2);
+  }
 
   useEffect(() => {
     if (Platform.OS === "ios") {
@@ -89,142 +121,651 @@ const ShippingAddress = ({ route, navigation }: Props) => {
   const [selectedRateHandle, setSelectedRateHandle] = useState<string | null>(null);
   const [shippingOptionError, setShippingOptionError] = useState('');
   const [availableShippingRates, setAvailableShippingRates] = useState<AvailableShippingRatesType | null>(null);
-  const [orderNotes, setOrderNotes] = useState('')
+  // const [orderNotes, setOrderNotes] = useState("Hey guys this is Will. Please don't fulfill this order, I'm just trying to test some stuff out. If anyhting gets messed up lmk, my number is (206)471-1231")
+  const [orderNotes, setOrderNotes] = useState<string>("")
   const [defaultAddress, setDefaultAddress] = useState(null);
 
+  const [selectedTipIndex, setSelectedTipIndex] = useState<number>(1);
+  const [customTipAmount, setCustomTipAmount] = useState('0');
+  const textInputRef = useRef<TextInput>(null);
 
-  // just to see sum
-  // useEffect(() => {
-  //   console.log(userToken)
-  // })
+  // Calculate the subtotal
+  const subtotal = getTotalPrice();
 
+  // Calculate the total taxes
+  const taxes = calculateTax(subtotal);
 
-  const sendToCheckout = async () => {
-    setIsLoading(true);
-    // Ensure selectedRateHandle is defined and not null
-    // if (!selectedRateHandle) {
-    //   setShippingOptionError('Please select a shipping option.');
-    //   setIsLoading(false);
-    //   return;
-    // }
+  // Define the delivery fee and tip
+  const deliveryFee = selectedDeliveryMethod === 'Delivery' ? 0.99 : 0.00;
+  const tip = selectedTipIndex !== 4 ? selectedTipIndex : parseFloat(customTipAmount.length > 0 ? customTipAmount : '0');
 
+  // Calculate the total amount
 
-    // get the shipping rates:
-    const query2 = `mutation checkoutShippingAddressUpdateV2($checkoutId: ID!, $shippingAddress: MailingAddressInput!) {
-      checkoutShippingAddressUpdateV2(checkoutId: $checkoutId, shippingAddress: $shippingAddress) {
-        checkout {
-          id
-          availableShippingRates {
-            ready
-            shippingRates {
-              handle
-              title
-              price {
-                amount
-                currencyCode
-              }
-            }
-          }
-        }
-        checkoutUserErrors {
-          code
-          field
-          message
-        }
-      }
-    }`
+  const calculateTotal = (subtotal, deliveryFee, tip, tax) => {
+    const total = (parseFloat(subtotal) + parseFloat(deliveryFee) + parseFloat(tip) + parseFloat(tax)).toFixed(2);
+    return total
+  };
 
-    if (province == null) {
-      throw 'Please select a State.'
-    }
+  const total = calculateTotal(subtotal, deliveryFee, tip, taxes);
 
-    const variables2 = {
-      checkoutId,
-      allowPartialAddresses: true,
-      shippingAddress: {
-        address1: address1,
-        address2: address2,
-        city: city,
-        company: "",
-        country: "US",
-        firstName: firstName,
-        lastName: lastName,
-        phone: phone,
-        province: province.code,
-        zip: zip
-      }
-    }
+  // const { initPaymentSheet, presentPaymentSheet, loading } = usePaymentSheet();
+  const {
+    initPaymentSheet,
+    presentPaymentSheet,
+    loading,
+    resetPaymentSheetCustomer,
+  } = usePaymentSheet();
+  const [ready, setReady] = useState<boolean>(false)
 
-    const response: any = await storefrontApiClient(query2, variables2)
-    if (response.errors && response.errors.length != 0) {
-      throw response.errors[0].message
-    }
-
-    if (response.data.checkoutShippingAddressUpdateV2.checkoutUserErrors && response.data.checkoutShippingAddressUpdateV2.checkoutUserErrors.length != 0) {
-      throw response.data.checkoutShippingAddressUpdateV2.checkoutUserErrors[0].message
-    }
-
-    const availableShippingRates: AvailableShippingRatesType = response.data.checkoutShippingAddressUpdateV2.checkout.availableShippingRates as AvailableShippingRatesType
-    setAvailableShippingRates(availableShippingRates)
-    const shippingRate = availableShippingRates?.shippingRates[0].handle;
-
-    // this grabs the webURL that we need for checkout
+  useEffect(() => {
     try {
-      const query = `mutation checkoutShippingLineUpdate($checkoutId: ID!, $shippingRateHandle: String!) {
-        checkoutShippingLineUpdate(checkoutId: $checkoutId, shippingRateHandle: $shippingRateHandle) {
-          checkout {
-            id
-            webUrl
-          }
-          checkoutUserErrors {
-            code
-            field
-            message
-          }
-        }
-      }`;
-
-      const variables = {
-        checkoutId,
-        shippingRateHandle: "shopify-Delivery%20Fee%20-%20UW-0.99",
-        // shippingRateHandle: selectedRateHandle
-      };
-
-      const response: any = await storefrontApiClient(query, variables);
-
-      if (response.errors && response.errors.length != 0) {
-        throw response.errors[0].message;
-      }
-
-      if (response.data.checkoutShippingLineUpdate.checkoutUserErrors && response.data.checkoutShippingLineUpdate.checkoutUserErrors.length != 0) {
-        throw response.data.checkoutShippingLineUpdate.checkoutUserErrors[0].message;
-      }
-
-      const webUrl = response.data.checkoutShippingLineUpdate.checkout.webUrl;
-      // console.log(webUrl);
-      // then, we navigate to that webURL (this is the popup)
-      await WebBrowser.openBrowserAsync(webUrl)
-
-
-      // Here you can navigate to the payment screen or handle the webUrl as needed
-      // For example: navigation.push('Payment', { webUrl, checkoutId, selectedRateHandle });
-      // navigation.push('Payment', { webUrl, checkoutId, selectedRateHandle })
-
+      setReady(false)
+      initializePaymentSheet();
+      // ready will be set back to true when we finish fetching everything 
     } catch (e) {
-      // console.log(e);
-      if (typeof e === 'string') {
-        setShippingOptionError(e);
-      } else {
-        setShippingOptionError('An error occurred while updating the shipping option.');
-      }
-    } finally {
-      setIsLoading(false);
+      setErrorMessage('Error initializing payment')
     }
 
-    resetCart();
+    // const testing = async () => {
+    //   const response = await fetch('https://us-central1-revdelivery.cloudfunctions.net/helloWorld', {
+    //     method: 'GET',
+    //     headers: {
+    //       'Content-Type': 'application/json',
+    //     },
+    //   });
+    //   if (response) {
+    //     console.log('got something')
+    //     console.log(response)
+    //   }
+    // }
+    // testing();
+  }, [selectedDeliveryMethod, selectedTipIndex, customTipAmount])
 
-    setIsLoading(false);
+
+  // added support for handling deep links as per Stripe docs. This was we can have a returnURL
+  const handleDeepLink = useCallback(
+    async (url) => {
+      if (url) {
+        const stripeHandled = await handleURLCallback(url);
+        if (stripeHandled) {
+          // This was a Stripe URL - handle redirection
+          // redirect();
+          console.log('STRIPE PAYMENT')
+        } else {
+          // This was NOT a Stripe URL – handle as you normally would
+          console.log('NOT STRIPE PAYMENT')
+        }
+      }
+    },
+    [handleURLCallback]
+  );
+
+  useEffect(() => {
+    const getUrlAsync = async () => {
+      const initialUrl = await Linking.getInitialURL();
+      handleDeepLink(initialUrl);
+    };
+
+    getUrlAsync();
+
+    const deepLinkListener = Linking.addEventListener(
+      'url',
+      (event) => {
+        handleDeepLink(event.url);
+      }
+    );
+
+    return () => deepLinkListener.remove();
+  }, [handleDeepLink]);
+
+
+  // this is what gets the parameters for the payment sheet
+  const fetchPaymentSheetParams = async () => {
+    const firebaseURL = 'https://us-central1-revdelivery.cloudfunctions.net/api'
+    if (!total || !email) {
+      setErrorMessage('Something went wrong, we couldn\'t find your email or total')
+      return
+    }
+
+
+    try {
+
+      const response = await axios.post(`${firebaseURL}/payment-sheet`, {
+        email: userToken.customer.email,
+        totalPrice: parseFloat(total),
+      });
+
+      const { paymentIntent, ephemeralKey, customer } = response.data;
+      // setErrorMessage('We got a response:' + 'payment:' + paymentIntent + 'eph' + ephemeralKey + 'cust' + customer)
+
+
+      // const response = await fetch(`${API_URL}/payment-sheet`, {
+      //   method: 'POST',
+      //   headers: {
+      //     'Content-Type': 'application/json',
+      //   },
+      //   body: JSON.stringify({
+      //     email: userToken.customer.email,
+      //     totalPrice: parseFloat(total),
+      //   })
+      // });
+
+      if (!response) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+
+
+
+      // const responseText = response.text();
+      // console.log(responseText)
+      // const responseText = await response.text();
+      // console.log('Response Text:', responseText);
+
+
+      // const jsonResponse = JSON.parse(responseText);
+      // const { paymentIntent, ephemeralKey, customer } = jsonResponse
+
+      // const { paymentIntent, ephemeralKey, customer } = await response.json();
+      if (!paymentIntent) {
+        // console.log('Houston we have a prolem')
+        setErrorMessage("Seems like something is wrong with our servers, paymentIntent wasn't generated. \nPlease check back later!")
+      }      // console.log(response.json())
+      return { paymentIntent, ephemeralKey, customer };
+    } catch (e) {
+      console.log('fetch PS', e)
+      setErrorMessage(e.message + 'Seems like something is wrong with our servers. \nPlease check back later!' +
+        firebaseURL,)
+      return //idk wtf I wold return here lmao
+    }
+  };
+
+
+  const initializePaymentSheet = async () => {
+    const { paymentIntent, ephemeralKey, customer } = await fetchPaymentSheetParams();
+    if (!paymentIntent) {
+      return
+    }
+    const { error } = await initPaymentSheet({
+      appearance: {
+        primaryButton: {
+          shapes: {
+            borderRadius: 20
+          }
+        },
+        colors: {
+          primary: config.primaryColor
+        }
+      },
+      paymentIntentClientSecret: paymentIntent,
+      merchantDisplayName: 'REV Delivery',
+      applePay: {
+        merchantCountryCode: 'US',
+      },
+      // googlePay: {
+      //   merchantCountryCode: 'US',
+      //   testEnv: true,
+      //   currencyCode: 'usd',
+      // },
+      allowsDelayedPaymentMethods: false,
+      // returnURL: 'your-app://stripe-redirect',
+      returnURL: 'revdelivery://stripe-redirect',
+    });
+
+    if (error) {
+      // console.log(error)
+      // Alert.alert(`Error code: ${error.code}`, error.message);
+      console.log('init PS', error)
+      return false
+    } else {
+      setReady(true);
+      return true
+    }
+  };
+
+  const handleCustomTipChange = (newCustomTipAmount: string) => {
+    setCustomTipAmount(newCustomTipAmount);
+  };
+
+  const focusTextInput = () => {
+    if (textInputRef.current) {
+      textInputRef.current.focus();
+    }
+  };
+
+
+
+  // // returns a boolean if the action was successful
+  // async function buy() {
+  //   const { error } = await presentPaymentSheet(); // presents the payment sheet to the user
+
+  //   if (error) {
+  //     Alert.alert(error.message)
+  //     return false
+  //   } else {
+  //     Alert.alert('successful payment wtf')
+  //     return true;
+  //   }
+  // }
+
+  const buy = async () => {
+    // put all of my fail safes here
+    if (!selectedLocation.isOpen || !email || !phone || !selectedDeliveryMethod || !total || !) {
+      return;
+    }
+    const { error } = await presentPaymentSheet();
+    if (error) {
+      // Alert.alert(`Error code: ${error.code}`, error.message);
+      return
+    } else {
+      setReady(false);
+      // Alert.alert('successful payment wtf')
+      return true;
+    }
+  };
+
+  const redirect = () => {
+    resetCart();
+    navigation.navigate('OrderConfirmation')
   }
+
+
+
+  // THIS IS THE MEAT AND POTATOES METHOD
+  // what happens if something fails????
+
+  // there would be an issue if one of them failed but not all of them so that is something to look into
+  const handleNewCheckout = async () => {
+    // LOT OF SANITY CHECKS HERE
+    // make sure that the store is open
+    // make sure that the needed fields are present
+
+
+
+    // ensure that we have things like address, phone, etc. etc. 
+
+
+    try {
+      const stripeSuccess = await buy();
+      if (!stripeSuccess) {
+        return
+      }
+      const orderNum = await sendToShopify();
+      // send to shipday (if needed)
+      // redirect to confirmation screen
+      if (!orderNum) {
+        setErrorMessage('Look like something went wrong. Please try again')
+        return
+      }
+
+      if (selectedDeliveryMethod === 'Delivery') { // because we dont put in-store pickup orders on shipday
+        const order = {
+          orderNumber: orderNum, // this is gotten from the shopify order
+          orderItems: cartItems.map(item => ({
+            name: item.title,
+            unitPrice: item.price.amount,
+            quantity: item.quantity,
+          })),
+          delivery: {
+            name: userToken.firstName + userToken.lastName,
+            address: `${address1}, ${city}, Washington, United States, ${zip}`,
+            phone: userToken.phone,
+            email: userToken.email,
+            lat: '', // leaving these blank because they are annoying to get :/
+            lng: '', // leaving these blank because they are annoying to get :/
+          },
+          orderTotal: parseFloat(total),
+          deliveryFee: selectedDeliveryMethod === 'Delivery' ? 0.99 : 0,
+          tip: tip,
+          tax: taxes,
+        };
+
+        // do not send to shipday, it will automatically do that I think lol
+        // const shipdaySuccess = await sendToShipday(order);
+        // if (!shipdaySuccess) {
+        //   setErrorMessage('Look like something went wrong. Please try again')
+        //   console.log("FAILED TO SEND TO SHIPDAY")
+        //   return
+        // }
+      }
+      console.log('SUCCESS!')
+      redirect()
+    } catch (error) {
+      // console.error('Error during checkout:', error);
+      setErrorMessage('Looks like something went wrong. Please try again later.');
+    }
+  }
+
+  const sendToShopify = async () => {
+    const { customer } = userToken;
+
+    // const lineItems: any = cartItems.map(item => ({
+    //   variantId: item.id, // Ensure variantId is in the correct format
+    //   quantity: item.quantity,
+    //   title: item.title,
+    //   originalUnitPrice: item.price.amount,
+    //   customAttributes: item.selectedOptions?.filter(attr => attr.key && attr.value) || [] // Filter out null attributes
+    // }));
+
+
+
+
+    try {
+      console.log(selectedDeliveryMethod)
+
+      let shippingLine = {};
+      if (selectedDeliveryMethod === "Pickup") {
+        // shippingLine = {
+        //   title: "Local pickup",
+        //   code: "Pickup",
+        //   price: 0.00,
+        //   price_set: {
+        //     shop_money: {
+        //       amount: "0.00",
+        //       currency_code: "USD"
+        //     },
+        //     presentment_money: {
+        //       amount: "0.00",
+        //       currency_code: "USD"
+        //     }
+        //   }
+        // };
+
+        // // shippingLine = {
+        // //   title: "Local pickup",
+        // //   code: "Pickup",
+        // //   source: "shopify",
+        // //   originalPriceSet: {
+        // //     shopMoney: {
+        // //       amount: "0.00",
+        // //       currencyCode: "USD"
+        // //     },
+        // //     presentmentMoney: {
+        // //       amount: "0.00",
+        // //       currencyCode: "USD"
+        // //     }
+        // //   }
+        // // };
+        //   shippingLine = {
+        //     id: 4681342091552,
+        //     carrier_identifier: "650f1a14fa979ec5c74d063e968411d4",
+        //     code: "UW Store",
+        //     discounted_price: "0.00",
+        //     discounted_price_set: {
+        //       shop_money: {
+        //         amount: "0.00",
+        //         currency_code: "USD"
+        //       },
+        //       presentment_money: {
+        //         amount: "0.00",
+        //         currency_code: "USD"
+        //       }
+        //     },
+        //     phone: phone,
+        //     email: email,
+        //     price: "0.00",
+        //     price_set: {
+        //       shop_money: {
+        //         amount: "0.00",
+        //         currency_code: "USD"
+        //       },
+        //       presentment_money: {
+        //         amount: "0.00",
+        //         currency_code: "USD"
+        //       }
+        //     },
+        //     source: "shopify",
+        //     title: "UW Store",
+        //     tax_lines: [],
+        //     discount_allocations: []
+        //   }
+        // } else if (selectedDeliveryMethod === "Delivery") {
+        //   // shippingLine = {
+        //   //   title: "Delivery Fee - UW",
+        //   //   code: "Delivery",
+        //   //   source: "shopify",
+        //   //   originalPriceSet: {
+        //   //     shopMoney: {
+        //   //       amount: "0.99",
+        //   //       currencyCode: "USD"
+        //   //     },
+        //   //     presentmentMoney: {
+        //   //       amount: "0.99",
+        //   //       currencyCode: "USD"
+        //   //     }
+        //   //   }
+        //   // };
+        //   // shippingLine = {
+        //   //   carrier_identifier: "736c7301c5a02f233a576b183445b66f",
+        //   //   title: "Delivery Fee - UW",
+        //   //   code: "Delivery",
+        //   //   price: "0.99",
+        //   // };
+        //   shippingLine = {
+        //     title: "Delivery Fee - UW",
+        //     code: "Delivery",
+        //     price: "0.99",
+        //     price_set: {
+        //       shop_money: {
+        //         amount: "0.99",
+        //         currency_code: "USD"
+        //       },
+        //       presentment_money: {
+        //         amount: "0.99",
+        //         currency_code: "USD"
+        //       }
+        //     },
+        //     phone: phone,
+        //     email: email,
+        //     carrier_identifier: "736c7301c5a02f233a576b183445b66f", // carrier ID for delivery. 
+        //     source: "shopify",
+        //     tax_lines: [],
+        //     discount_allocations: []
+        //   };
+        if (selectedDeliveryMethod === "Pickup") {
+          shippingLine = {
+            carrier_identifier: "650f1a14fa979ec5c74d063e968411d4",
+            location_id: 123456789,
+            delivery_category: null,
+            title: "UW Store",
+            code: "UW Store",
+            price: "0.00",
+            price_set: {
+              shop_money: {
+                amount: "0.00",
+                currency_code: "USD"
+              },
+              presentment_money: {
+                amount: "0.00",
+                currency_code: "USD"
+              }
+            },
+            source: "shopify",
+            tax_lines: [],
+            // "carrier_identifier": null,
+            discount_allocations: []
+          };
+        } else if (selectedDeliveryMethod === "Delivery") {
+          shippingLine = {
+            title: "Delivery Fee - UW",
+            code: "Delivery",
+            price: "0.99",
+            price_set: {
+              shop_money: {
+                amount: "0.99",
+                currency_code: "USD"
+              },
+              presentment_money: {
+                amount: "0.99",
+                currency_code: "USD"
+              }
+            },
+            carrier_identifier: "736c7301c5a02f233a576b183445b66f",
+            source: "shopify",
+            tax_lines: [],
+            discount_allocations: []
+          };
+        }
+
+      }
+
+      console.log('shipLine', shippingLine)
+
+      const lineItems: any = cartItems.map(item => ({
+        variant_id: parseInt(item.id.split('/').pop()),  // Ensure variant_id is a plain numeric string
+        quantity: item.quantity,
+        title: item.product.title,
+        price: item.price.amount.toString(), // make sure this is a string
+        "tax_lines": [
+          {
+            "price": parseFloat((item.price.amount * item.quantity * 0.065).toFixed(2)).toString(), // 6.5% state tax
+            "rate": 0.065,
+            "title": "Washington State Tax"
+          },
+          {
+            "price": parseFloat((item.price.amount * item.quantity * 0.0385).toFixed(2)).toString(), // 3.85% city tax
+            "rate": 0.0385,
+            "title": "Seattle City Tax"
+          }
+        ],
+        requires_shipping: selectedDeliveryMethod === "Delivery", // true if delivery, false if pickup
+        // requires_shipping: true, // always true, since instore pickup is technically shipping
+        // double check that this works later. I dont think that we need this lol.
+        // properties: item.selectedOptions?.map(attr => ({ name: attr, value: attr.value })) || []
+      }))
+
+
+      const nonStrings = lineItems.filter(item => typeof item.price !== 'string')
+      console.log(nonStrings.length)
+      // add the user tip
+      // const tipAmount = 2.83;
+
+      const tipAmount = selectedTipIndex !== 4 ? selectedTipIndex : parseFloat(customTipAmount)
+      if (tipAmount > 0) {
+        lineItems.push({
+          title: 'Tip',
+          price: tipAmount.toFixed(2), // format tip amount to 2 decimal places
+          quantity: 1,
+          requires_shipping: false,
+        })
+      }
+
+
+      // HERE IS WHERE WE CREATE THE ORDER WITHIN SHOPIFY
+      // TODO: handle discounts, fix locations, fix delivery
+      console.log(shippingLine)
+      const order = await createOrder({
+        line_items: lineItems,
+        customer: {
+          id: parseInt(userToken.customer.id.split('/').pop()),
+          email: userToken.customer.email,
+          first_name: userToken.customer.firstName,
+          last_name: userToken.customer.lastName,
+          phone: userToken.customer.phone,
+        },
+
+
+        // only input shipping address if its a delivery order, as following website
+        shipping_address: selectedDeliveryMethod === 'Delivery' ? {
+          first_name: firstName,
+          last_name: lastName,
+          address1: address1,
+          address2: address2,
+          city: city,
+          province: province.code,
+          country: "US",
+          zip: zip,
+          phone: phone,
+        } : undefined,
+        // billing address not needed because of the shipping address being the same
+        // also the user is filling in shipping address, not billing address
+        // billing_address: {
+        //   first_name: firstName,
+        //   last_name: lastName,
+        //   address1: address1,
+        //   address2: address2,
+        //   city: city,
+        //   province: province.code,
+        //   country: "US",
+        //   zip: zip,
+        //   phone: phone,
+        // },
+        shipping_lines: selectedDeliveryMethod === 'Delivery' ? [shippingLine] : undefined, // this is fucked
+        location_id: selectedLocation.id.split('/').pop(),
+        financial_status: "paid",
+        total_price: total, // i think these are right
+        subtotal_price: totalPrice,
+        total_tax: taxes,
+        note: orderNotes,
+        tags: ["REV Mobile v2"]
+      });
+      console.log('Order created:', order);
+      console.log(order.name)
+      return order.name;
+    } catch (error) {
+      console.error('Error during checkout:', error);
+      setErrorMessage('An error occurred during checkout.');
+      return false;
+    }
+  }
+
+
+  // none of shipday has been implemented yet. This is coming soon!
+
+  const sendToShipday = async (order) => {
+    const SHIPDAY_API_URL = 'https://api.shipday.com/orders';
+    // const shipdayAPIKey = REACT_APP_SHIPDAY_API_KEY;
+    const shipdayAPIKey = '8kQPgBCOzF.yPDcFdKMtgP5KXSRCg2P'
+
+
+    const orderPayload = {
+      orderNumber: order.orderNumber,
+      orderItems: order.orderItems.map(item => ({
+        name: item.name,
+        unitPrice: item.unitPrice,
+        quantity: item.quantity
+      })),
+      deliveryNote: orderNotes,
+      pickup: {
+        id: null,
+        name: "REV Delivery",
+        address: "4750 University Way NE, Seattle, WA, USA",
+        formattedAddress: "4750 University Way Northeast, University District, Seattle, Washington 98105, United States",
+        phone: "+1(206) 833-6358",
+        lat: 47.6645226,
+        lng: -122.3128206
+      },
+      delivery: {
+        name: order.delivery.name,
+        address: order.delivery.address,
+        formattedAddress: order.delivery.address,
+        phone: order.delivery.phone,
+        email: order.delivery.email,
+        paymentMethod: "ONLINE",
+        orderSource: "REV Mobile", // idk if this should be corrected to REV Mobile??? before was shopify""
+        orderTotal: order.orderTotal,
+        deliveryFee: order.deliveryFee,
+        tip: order.tip,
+        tax: order.tax
+      }
+    };
+    console.log(typeof orderPayload.orderItems[0].unitPrice)
+    try {
+      const response = await axios.post(SHIPDAY_API_URL, orderPayload, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${shipdayAPIKey}`
+        }
+      });
+      console.log('order inserted successfully')
+      return true;
+    } catch (e) {
+      console.log(e)
+      return false;
+    }
+    return false;
+  }
+
 
   const updateShippingOption = async () => {
     if (!selectedRateHandle) {
@@ -733,7 +1274,11 @@ const ShippingAddress = ({ route, navigation }: Props) => {
   };
 
   useEffect(() => {
-    getCustomerAddress()
+    // getCustomerAddress()
+    const grabAddress = async () => {
+      getCustomerAddress()
+    }
+    grabAddress()
   }, [userToken])
 
   useEffect(() => {
@@ -767,12 +1312,14 @@ const ShippingAddress = ({ route, navigation }: Props) => {
         <View style={{ flex: 1, justifyContent: 'space-between', height: '100%' }}>
 
           {/* top section */}
-          <View style={{ display: 'flex', height: 110, marginBottom: 30, alignItems: 'center', }}>
+          <View style={{ display: 'flex', height: 110, marginBottom: 30, alignItems: 'center' }}>
             {/* review order and price component */}
-            <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 0, paddingTop: 20, width: '90%' }}>
+
+            {/* old pricing component */}
+            {/* <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 0, paddingTop: 20, width: '90%' }}>
               <Text style={{ textAlign: 'left', color: '#4B2D83', fontSize: 18, fontWeight: '800' }}>Total</Text>
               <Text style={{ textAlign: 'right', color: '#4B2D83', fontSize: 18, fontWeight: '800' }}>${totalPrice.toFixed(2)}</Text>
-            </View>
+            </View> */}
 
             {/* address field */}
             <TouchableOpacity style={styles.addressBox} onPress={() => bottomSheetRef.current?.expand()}>
@@ -885,19 +1432,237 @@ const ShippingAddress = ({ route, navigation }: Props) => {
               />
             </View> */}
 
-          {/* lower section */}
-          <View style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', }}>
-            <View style={{ width: '90%', display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: 6 }}>
-              <Text style={{ color: '#aaaaaa', fontSize: 11, textAlign: 'center', lineHeight: 15, letterSpacing: 0.2 }}>By submitting your order, you agree to REV’s Terms of Service and Privacy Policy, including all terms related to the purchase of alcohol and vape products. If your order includes alcohol or vape products, you certify that you are of lawful age to purchase and consume such products and that you will produce a valid ID at delivery. If we are unable to verify your age, you may be charged at NON-REFUNDABLE restocking fee.</Text>
+          {/* middle section */}
+          {/* <View style={{ display: 'flex', width: '80%', height: '30%', flexDirection: 'column', alignSelf: 'center' }}>
+
+            <View style={{ display: 'flex', width: '80%', height: '30%', flexDirection: 'column', alignSelf: 'center' }}>
+              <Text style={{ marginLeft: 2, marginBottom: 4 }}>
+                Any notes for our racers?
+              </Text>
+              <TextInput style={{ width: '100%', alignSelf: 'center', height: 100, backgroundColor: 'white', borderRadius: 8, borderWidth: 1, borderColor: 'black', padding: 6 }}
+                onChangeText={setOrderNotes}
+                value={orderNotes}
+                placeholder=" XD "
+                multiline={true}
+              />
             </View>
 
-            <View style={[styles.checkoutContainer, { height: errorMessage.length != 0 ? 68 : 50, marginBottom: 10 }]}>
+            <View>
+              <Text>
+                Any tips for our racers?
+              </Text>
+            </View>
+
+          </View> */}
+
+
+          {/* middle container */}
+          <View style={{
+            alignSelf: 'center', display: 'flex', flexDirection: 'column', width: '90%', justifyContent: 'space-between', height: '40%',
+            marginTop: '-60%'
+          }}>
+
+            {/* this is for selecting the delivery method */}
+            <View style={{ marginTop: 0, width: '100%', alignItems: 'center' }}>
+              <Text style={{ marginLeft: 4, marginBottom: 12, fontWeight: '600', fontStyle: 'italic', fontSize: 16, alignSelf: 'flex-start', }}>Select Delivery Method</Text>
+
+              <View style={{ display: 'flex', flexDirection: 'row', width: '80%', borderColor: 'gray', borderWidth: 1, height: 40, borderRadius: 30 }}>
+                <TouchableOpacity style={{
+                  display: 'flex', justifyContent: 'center', alignItems: 'center',
+                  width: '50%', backgroundColor: selectedDeliveryMethod === 'Delivery' ? config.primaryColor : 'transparent', borderTopLeftRadius: 30, borderBottomLeftRadius: 30
+                }} onPress={() => setSelectedDeliveryMethod('Delivery')}>
+                  <Text style={{ color: selectedDeliveryMethod !== 'Delivery' ? config.primaryColor : 'white', fontWeight: '600', fontSize: 18 }}>
+                    Delivery
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={{
+                  display: 'flex', justifyContent: 'center', alignItems: 'center',
+                  width: '50%', backgroundColor: selectedDeliveryMethod === 'Pickup' ? config.primaryColor : 'transparent',
+                  borderTopRightRadius: 30, borderBottomRightRadius: 30
+                }} onPress={() => setSelectedDeliveryMethod('Pickup')}>
+                  <Text style={{ color: selectedDeliveryMethod !== 'Pickup' ? config.primaryColor : 'white', fontWeight: '600', fontSize: 18 }}>
+                    Pickup
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+
+            {/* ORDER NOTES */}
+            <View style={{ display: 'flex', marginVertical: 30 }}>
+              <Text style={{ marginLeft: 4, marginBottom: 12, fontWeight: '600', fontStyle: 'italic', fontSize: 16 }}>
+                Any notes for our drivers?
+              </Text>
+              <ScrollView
+                keyboardShouldPersistTaps="never"
+                scrollEnabled={false}
+              >
+
+                <TextInput style={{
+                  width: '90%', alignSelf: 'center', height: 100,
+                  // backgroundColor: 'white',
+                  borderRadius: 8, borderWidth: 1, borderColor: 'gray', padding: 6
+                }}
+                  onChangeText={setOrderNotes}
+                  value={orderNotes}
+                  placeholder="They will see these..."
+                  multiline={true}
+                  blurOnSubmit={true}
+                  returnKeyType="done"
+                />
+              </ScrollView>
+
+            </View>
+
+            {/* tip container */}
+            <View style={{}}>
+              <Text style={{ marginLeft: 4, marginBottom: 8, fontWeight: '600', fontStyle: 'italic', fontSize: 16 }}>Tip?</Text>
+              <View style={{ backgroundColor: 'purple' }} />
+              <View style={{ width: '90%', height: 50, borderWidth: 1, borderColor: 'gray', display: 'flex', flexDirection: 'row', alignSelf: 'center', borderRadius: 12 }}>
+                {/* no tip */}
+                <TouchableOpacity style={{ width: '20%', display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: selectedTipIndex === 0 ? config.primaryColor : 'transparent', borderTopLeftRadius: 10, borderBottomLeftRadius: 10 }} onPress={() => setSelectedTipIndex(0)}>
+                  <Text style={{ color: selectedTipIndex !== 0 ? config.primaryColor : 'white', fontWeight: '500', fontSize: 16, marginBottom: -1 }}>No</Text>
+                </TouchableOpacity>
+
+                {/* $1 */}
+                <TouchableOpacity style={{ width: '20%', borderLeftWidth: 1, justifyContent: 'center', alignItems: 'center', borderColor: 'gray', backgroundColor: selectedTipIndex === 1 ? config.primaryColor : 'transparent' }} onPress={() => setSelectedTipIndex(1)}>
+                  <Text style={{ color: selectedTipIndex !== 1 ? config.primaryColor : 'white', fontWeight: '600', fontSize: 16 }}>$1</Text>
+                </TouchableOpacity>
+
+
+                {/* $2 */}
+                <TouchableOpacity style={{ width: '20%', borderLeftWidth: 1, justifyContent: 'center', alignItems: 'center', borderColor: 'gray', backgroundColor: selectedTipIndex === 2 ? config.primaryColor : 'transparent', }} onPress={() => setSelectedTipIndex(2)}>
+                  <Text style={{ color: selectedTipIndex !== 2 ? config.primaryColor : 'white', fontWeight: '600', fontSize: 16 }}>$2</Text>
+                </TouchableOpacity>
+
+                {/* $3 */}
+                <TouchableOpacity style={{ width: '20%', borderLeftWidth: 1, justifyContent: 'center', alignItems: 'center', borderColor: 'gray', backgroundColor: selectedTipIndex === 3 ? config.primaryColor : 'transparent' }} onPress={() => setSelectedTipIndex(3)}>
+                  <Text style={{ color: selectedTipIndex !== 3 ? config.primaryColor : 'white', fontWeight: '600', fontSize: 16 }}>$3</Text>
+                </TouchableOpacity>
+
+                {/* custom */}
+                <TouchableOpacity style={{ width: '20%', borderLeftWidth: 1, justifyContent: 'center', alignItems: 'center', borderColor: 'gray', backgroundColor: selectedTipIndex === 4 ? config.primaryColor : 'transparent', borderTopRightRadius: 10, borderBottomRightRadius: 10 }} onPress={() => {
+                  setSelectedTipIndex(4);
+                }} >
+                  {/* <Text style={{ color: selectedTipIndex !== 4 ? config.primaryColor : 'white', fontWeight: '600', fontSize: 18 }}>$5</Text> */}
+                  {/* i tried lol */}
+                  {selectedTipIndex !== 4 ? (<Text style={{ color: selectedTipIndex !== 4 ? config.primaryColor : 'white', fontWeight: '600', fontSize: 14 }}>Custom</Text>) :
+
+                    (<View>
+                      <PriceInput onCustomTipChange={handleCustomTipChange} />
+                    </View>
+
+                    )}
+
+                </TouchableOpacity>
+              </View>
+
+            </View>
+
+            {/* discount code container */}
+            {/* <View style={{ width: '95%', height: 40, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 18 }}>
+              <Text style={{ marginLeft: 4, marginBottom: 8, fontWeight: '600', fontStyle: 'italic', fontSize: 16, marginTop: 12 }}>Got a discount code?</Text>
+              <TextInput
+                style={{ width: 100, height: 40, borderRadius: 8, borderColor: 'gray', borderWidth: 1, paddingHorizontal: 20 }}
+                onChangeText={setDiscountCode}
+                value={discountCode}
+                placeholder="CODE"
+                multiline={false}
+              />
+            </View> */}
+
+            <View style={{ marginTop: 18 }}>
+              <Text style={[styles.error]}>
+                {errorMessage}
+              </Text>
+            </View>
+
+          </View>
+
+
+          {/* lower section */}
+          <View style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', }}>
+            {/* this is the pricing breakdown */}
+
+            <View style={{ width: '90%', alignSelf: 'center' }}>
+              {/* subtotal */}
+              <View style={
+                styles.pricingBreakdownContainer
+              }>
+                <Text style={{ textAlign: 'left', color: 'gray', fontSize: 16, fontWeight: '600' }}>Subtotal</Text>
+                <Text style={{ textAlign: 'right', color: 'gray', fontSize: 16, fontWeight: '600' }}>{subtotal?.toFixed(2)}</Text>
+
+              </View>
+              {/* <View style={{
+              backgroundColor: 'red', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'
+            }}>
+              
+            </View> */}
+
+
+              {/* tax */}
+
+              {/* shipping */}
+              <View style={
+                styles.pricingBreakdownContainer
+              }>
+                <Text style={{ textAlign: 'left', color: 'gray', fontSize: 16, fontWeight: '600' }}>Delivery</Text>
+                <Text style={{ textAlign: 'right', color: 'gray', fontSize: 16, fontWeight: '600' }}>{deliveryFee?.toFixed(2)}</Text>
+              </View>
+
+              {/* tip */}
+              <View style={
+                styles.pricingBreakdownContainer
+              }>
+                <Text style={{ textAlign: 'left', color: 'gray', fontSize: 16, fontWeight: '600' }}>Tip</Text>
+                <Text style={{ textAlign: 'right', color: 'gray', fontSize: 16, fontWeight: '600' }}>{tip?.toFixed(2)}</Text>
+              </View>
+
+              {/* taxes */}
+              <View style={
+                styles.pricingBreakdownContainer
+              }>
+                <Text style={{ textAlign: 'left', color: 'gray', fontSize: 16, fontWeight: '600' }}>Tax</Text>
+                <Text style={{ textAlign: 'right', color: 'gray', fontSize: 16, fontWeight: '600' }}>
+                  {taxes}
+                </Text>
+              </View>
+
+              {/* total */}
+              {/* tip + shipping + tax + subtotal */}
+              <View style={
+                styles.pricingBreakdownContainer
+              }>
+                <Text style={{ textAlign: 'left', color: 'black', fontSize: 18, fontWeight: '800' }}>Total</Text>
+                <Text style={{ textAlign: 'right', color: 'black', fontSize: 18, fontWeight: '800' }}>
+                  ${total}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.checkoutContainer}>
+              {/* {errorMessage.length != 0 &&
+                <Text style={styles.error}>{errorMessage}</Text>
+              } */}
+              {loading || !ready ? (<View style={styles.checkoutClosed}>
+
+                <ActivityIndicator />
+              </View>) : (<TouchableOpacity style={styles.checkoutButton} onPress={handleNewCheckout}>
+                <Text style={{ fontSize: 18, fontWeight: '600', color: 'white' }}>Checkout</Text>
+              </TouchableOpacity>)}
+
+            </View>
+
+
+            {/* this was our old checkout */}
+            {/* <View style={[styles.checkoutContainer, { height: errorMessage.length != 0 ? 68 : 50, marginBottom: 10 }]}>
 
               {errorMessage.length != 0 &&
                 <Text style={styles.error}>{errorMessage}</Text>
               }
               {isLoading ? (<TouchableOpacity style={styles.checkoutButton} >
                 <ActivityIndicator size='small' />
+
               </TouchableOpacity>)
                 // TODO CHANGE THIS ONPRESS TO PULL UP WEBURL
 
@@ -905,10 +1670,11 @@ const ShippingAddress = ({ route, navigation }: Props) => {
 
                   <Text style={{ fontSize: 18, fontWeight: '600', color: 'white' }}>Checkout</Text>
                 </TouchableOpacity>)}
-            </View>
+            </View> */}
           </View>
           {/* checkout button */}
-        </View>
+
+        </View >
         {/* </KeyboardAvoidingView > */}
       </LinearGradient >
 
@@ -1032,10 +1798,10 @@ const styles = StyleSheet.create({
     paddingTop: 16
   },
   error: {
-    alignSelf: 'center',
+    alignSelf: 'flex-start',
     color: 'red',
-    marginBottom: 4,
-    letterSpacing: 1.8
+    marginBottom: 10,
+    letterSpacing: 0.2
   },
   textDescription: {
     fontSize: 14,
@@ -1061,7 +1827,7 @@ const styles = StyleSheet.create({
   },
   checkoutClosed: {
     marginTop: 5,
-    paddingVertical: 10,
+    paddingVertical: 11,
     paddingHorizontal: 20,
     borderRadius: 20,
     backgroundColor: 'gray',
@@ -1084,4 +1850,7 @@ const styles = StyleSheet.create({
     // borderBottomWidth: 2,
     // borderBottomColor: '#4B2D83',
   },
+  pricingBreakdownContainer: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8
+  }
 })

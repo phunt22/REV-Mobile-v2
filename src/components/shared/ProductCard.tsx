@@ -12,12 +12,13 @@ import { CartIcon } from './Icons';
 import { Animated } from 'react-native';
 import fonts from '../../../App'
 import { useStoreClosed } from '../../context/StoreClosedContext';
+import { config } from '../../../config';
 
 
 const ProductCard = memo(({ data }: { data: Product }) => {
   const { rootNavigation } = useNavigationContext();
   const { getItemsCount, getProductQuantityInCart } = useCartContext();
-  const { addItemToCart, substractQuantityOfItem, addQuantityOfItem } = useCartContext();
+  const { addItemToCart, substractQuantityOfItem, addQuantityOfItem, cartItems } = useCartContext();
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -33,6 +34,10 @@ const ProductCard = memo(({ data }: { data: Product }) => {
       }))
       : []
   );
+
+  useEffect(() => {
+    setNumInCart(getProductQuantityInCart(data.title))
+  }, [cartItems])
 
   // ANIMATIONS HANDLED HERE
   const rotationAnim = useRef(new Animated.Value(0)).current
@@ -297,7 +302,29 @@ const ProductCard = memo(({ data }: { data: Product }) => {
     <View style={styles.container}>
       <TouchableOpacity onPress={handlePressProduct} disabled={!selectedItem?.availableForSale}>
         <View>
-          <Image source={{ uri: data.images.nodes[0].url }} style={styles.image} />
+
+
+          {/* top wrapper */}
+          {data.compareAtPriceRange.minVariantPrice.amount > data.priceRange.minVariantPrice.amount && (
+            <View style={{ position: 'absolute', zIndex: 1, }}>
+              <View style={{ height: 20, paddingHorizontal: 14, paddingVertical: 2, backgroundColor: config.primaryColor, display: 'flex', justifyContent: 'center', alignItems: 'center', borderRadius: 12 }}>
+                <Text style={{ color: 'white', fontWeight: '600' }}>ON SALE</Text>
+              </View>
+              <Text style={styles.strikedPrice}>
+                ${data.compareAtPriceRange.minVariantPrice.amount.toString().split('.')[0]}.
+                <Text style={styles.smallStrikedPrice}>
+                  {(data.compareAtPriceRange.minVariantPrice.amount.toString().split('.')[1] || '') +
+                    (data.compareAtPriceRange.minVariantPrice.amount.toString().split('.')[1]?.length === 1 ? '0' : '')}
+
+                  {/* {(data.priceRange.minVariantPrice.amount.toString().split('.')[1])} */}
+
+                </Text>
+              </Text>
+            </View>
+          )}
+
+
+          < Image source={{ uri: data.images.nodes[0].url }} style={styles.image} />
           <View>
             <Text style={{
               marginTop: 10,
@@ -311,10 +338,47 @@ const ProductCard = memo(({ data }: { data: Product }) => {
               numberOfLines={1} ellipsizeMode="tail">
               {data.title}
             </Text>
-            <View style={styles.priceContainer}>
-              {data.compareAtPriceRange.minVariantPrice.amount > data.priceRange.minVariantPrice.amount && (
-                <Text style={styles.compareAtPrice}>{data.compareAtPriceRange.minVariantPrice.amount}</Text>
+
+            {/* this is the updated one */}
+            <View style={{
+              flexDirection: 'column',
+              // marginTop: -6,
+              // marginBottom: data.compareAtPriceRange.minVariantPrice.amount > data.priceRange.minVariantPrice.amount ? 6 : 0
+            }}>
+              {!selectedItem.availableForSale ? (
+                <Text style={styles.outOfStock}>Out of Stock</Text>
+              ) : (
+                // if its on sale, display the sale price as striked out
+                <>
+                  <Text style={styles.price}>
+
+                    ${data.priceRange.minVariantPrice.amount.toString().split('.')[0]}.
+                    <Text style={styles.smallPrice}>
+                      {(data.priceRange.minVariantPrice.amount.toString().split('.')[1] || '') +
+                        (data.priceRange.minVariantPrice.amount.toString().split('.')[1]?.length === 1 ? '0' : '')}
+
+                      {/* {(data.priceRange.minVariantPrice.amount.toString().split('.')[1])} */}
+
+                    </Text>
+                  </Text>
+                </>
+
               )}
+
+              {/* if we want to display the sale price */}
+
+            </View>
+
+
+
+
+            {/* this is the old one */}
+            {/* <View style={styles.priceContainer}>
+              {data.compareAtPriceRange.minVariantPrice.amount > data.priceRange.minVariantPrice.amount && 
+              
+                (
+                  <Text style={styles.compareAtPrice}>{data.compareAtPriceRange.minVariantPrice.amount}</Text>
+                )}
               {selectedItem?.availableForSale ? (
                 // <Text style={styles.price}>${data.priceRange.minVariantPrice.amount}</Text>
                 <Text style={styles.price}>
@@ -323,15 +387,17 @@ const ProductCard = memo(({ data }: { data: Product }) => {
                   <Text style={styles.smallPrice}>
                     {(data.priceRange.minVariantPrice.amount.toString().split('.')[1] || '') +
                       (data.priceRange.minVariantPrice.amount.toString().split('.')[1]?.length === 1 ? '0' : '')}
-
-                    {/* {(data.priceRange.minVariantPrice.amount.toString().split('.')[1])} */}
-
                   </Text>
                 </Text>
               ) : (
                 <Text style={styles.outOfStock}>Out of Stock</Text>
               )}
-            </View>
+            </View> */}
+
+
+
+
+
           </View>
         </View>
       </TouchableOpacity >
@@ -340,7 +406,7 @@ const ProductCard = memo(({ data }: { data: Product }) => {
 
         {/* Add and subtract */}
         {data.availableForSale && !userContinueAnyways ? (
-          <View style={{ display: 'flex', flexDirection: 'row', alignSelf: 'flex-end', alignItems: 'center', marginRight: 10, marginBottom: 0 }}>
+          <View style={{ display: 'flex', flexDirection: 'row', alignSelf: 'flex-end', alignItems: 'center', marginRight: 10, marginBottom: 0, }}>
             {numInCart > 0 ?
               (<>
                 <TouchableOpacity onPress={handleSubtractFromCart}>
@@ -410,6 +476,21 @@ const styles = StyleSheet.create({
     marginTop: 2,
     // fontSize: 16.2, v1 fontSizing
     fontSize: 18,
+    fontWeight: '800',
+    color: '#4B2D83',
+  },
+  strikedPrice: {
+    marginTop: 2,
+    // fontSize: 16.2, v1 fontSizing
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#4B2D83',
+    textDecorationLine: 'line-through',
+  },
+  smallStrikedPrice: {
+    marginTop: 2,
+    // fontSize: 13, v1 fontSizing
+    fontSize: 10,
     fontWeight: '800',
     color: '#4B2D83',
   },

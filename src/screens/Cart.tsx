@@ -14,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { TouchableOpacity } from '@gorhom/bottom-sheet'
 import { useStoreClosed } from '../context/StoreClosedContext'
 import { config } from '../../config'
+import { useLocations } from '../context/LocationsContext'
 
 type Props = NativeStackScreenProps<CartStackParamList, 'Cart'>
 
@@ -26,6 +27,11 @@ const Cart = ({ navigation }: Props) => {
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
 
+  const { selectedLocation, isLoading: isLoadingLocations, resetLocation } = useLocations();
+
+
+
+
   useEffect(() => {
     navigation.setOptions({
       headerTitle: () => (
@@ -34,6 +40,12 @@ const Cart = ({ navigation }: Props) => {
       )
     })
   }, [getItemsCount])
+
+  const [storeHours, setStoreHours] = useState<string>('');
+
+  useEffect(() => {
+    setStoreHours(selectedLocation.storeHours)
+  }, [selectedLocation])
 
   const createCheckout = async () => {
     setIsLoading(true)
@@ -138,33 +150,34 @@ const Cart = ({ navigation }: Props) => {
         </View>
 
 
-        < View style={{
+        <View style={{
           flexDirection: 'column',
           justifyContent: 'flex-start',
           alignItems: 'flex-start',
-          height: 130,
-          marginTop: 20,
+          height: 100,
           marginBottom: 24,
           // borderWidth: 1,
           borderRadius: 8,
           backgroundColor: '#FFFFFF',
           shadowColor: 'black', shadowRadius: 1,
           shadowOffset: { width: 0, height: 0 },
-          shadowOpacity: 0.6,
-          width: '85%',
+          shadowOpacity: 0.6
         }}>
-          <View style={{ display: 'flex', marginLeft: 12, marginTop: 10 }}>
+          <View style={{ display: 'flex', marginLeft: 12, marginTop: 10, }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: '#4B2D83' }}>
               Store Hours
             </Text>
-            <View style={{ marginLeft: 8, marginTop: 16, flex: 1, flexDirection: 'column', justifyContent: 'space-between', marginBottom: 20 }}>
+            <View style={{ marginLeft: 8, marginTop: 4, flex: 1, flexDirection: 'column', justifyContent: 'space-between', marginBottom: 0 }}>
+              <Text style={{ fontSize: 18, fontWeight: '300', flexWrap: 'wrap', lineHeight: 24 }}>
+                {typeof storeHours === 'string' ? storeHours : ""}
+              </Text>
+
+              {/* <Text style={{ fontSize: 18, fontWeight: '300' }}>{storeHours}</Text>
               <Text style={{ fontSize: 18, fontWeight: '300' }}>Sunday - Thursday: 11AM - 12AM</Text>
               <View style={{ width: 250, height: 1, borderRadius: 2, backgroundColor: '#3C3C4333' }}></View>
-              <Text style={{ fontSize: 18, fontWeight: '300', }}>Friday - Saturday: 11AM - 1AM</Text>
+              <Text style={{ fontSize: 18, fontWeight: '300', }}>Friday - Saturday: 11AM - 1AM</Text> */}
             </View>
-
           </View>
-
         </View>
 
       </View>
@@ -194,46 +207,47 @@ const Cart = ({ navigation }: Props) => {
         <LinearGradient colors={['#FFFFFF', '#D9D9D9', '#FFFFFF']} style={{ display: 'flex', height: '95%', width: '100%', marginTop: 8, justifyContent: 'center', alignItems: 'center' }}>
           <Text style={styles.empty}>Bag is empty</Text>
         </LinearGradient> :
-        <LinearGradient colors={['#FFFFFF', '#D9D9D9', '#FFFFFF']} style={{ display: 'flex', height: '95%', width: '100%', marginTop: 8 }}>
+        <LinearGradient colors={['#FFFFFF', '#D9D9D9', '#FFFFFF']} style={{ display: 'flex', height: '98%', width: '100%', marginTop: 8 }}>
           <FlatList
             data={cartItems}
             renderItem={({ item }) => <CartCard cartItem={item} />}
             contentContainerStyle={styles.container}
             showsVerticalScrollIndicator={false}
           />
-          <View style={[styles.checkoutContainer, { height: errorMessage.length != 0 ? 68 + 24 : 160 + 24 }]}>
+          <View style={[styles.checkoutContainer, { height: errorMessage.length != 0 ? 68 + 30 : 160 + 30 }]}>
 
             {/* // this is the container for the bottom */}
-            <View style={{ width: '95%' }}>
+            <View style={{ width: '98%' }}>
               {errorMessage.length != 0 &&
                 <Text style={styles.error}>{errorMessage}</Text>
               }
-              <View style={{ flexDirection: 'column', width: '100%', alignSelf: 'center', paddingTop: 5, }}>
 
-                {/* subtotal */}
+              <Text style={{ color: '#aaaaaa', fontSize: 11, textAlign: 'center', lineHeight: 15, letterSpacing: 0.2, marginBottom: 10, paddingTop: 8 }}>By submitting your order, you agree to REV’s Terms of Service and Privacy Policy, including all terms related to the purchase of alcohol and vape products. If your order includes alcohol or vape products, you certify that you are of lawful age to purchase and consume such products and that you will produce a valid ID at delivery. If we are unable to verify your age, you may be charged a NON-REFUNDABLE restocking fee.</Text>
+              {/* <View style={{ flexDirection: 'column', width: '100%', alignSelf: 'center', paddingTop: 5, }}>
+
                 <View style={{ flexDirection: 'row', paddingVertical: 4, width: '100%', justifyContent: 'space-between' }}>
                   <Text style={styles.grayTextLeft}>Subtotal</Text>
                   <Text style={styles.grayTextRight}>{parseFloat(totalPrice.toFixed(2))} USD</Text>
                 </View>
 
-                {/* tax */}
                 <View style={{ flexDirection: 'row', paddingVertical: 4, width: '100%', justifyContent: 'space-between' }}>
                   <Text style={styles.grayTextLeft}>Tax </Text>
                   <Text style={styles.grayTextRight}>{(totalPrice * 0.1).toFixed(2) + " "}USD</Text>
                 </View>
 
-                {/* delivery */}
                 <View style={{ flexDirection: 'row', paddingVertical: 4, width: '100%', justifyContent: 'space-between', marginBottom: 10 }}>
                   <Text style={styles.grayTextLeft}>Delivery </Text>
                   <Text style={styles.grayTextRight}>{0.99} USD</Text>
                 </View>
 
-                {/* total */}
                 <View style={{ flexDirection: 'row', paddingVertical: 4, width: '100%', justifyContent: 'space-between', marginBottom: 10 }}>
                   <Text style={styles.blackTextLeft}>Total </Text>
                   <Text style={styles.blackTextRight}>{parseFloat((totalPrice + (totalPrice * 0.1) + 0.99).toFixed(2))} USD</Text>
                 </View>
-              </View>
+              </View> */}
+
+
+
               {/* <FillButton
                   title='CHECKOUT'
                   onPress={createCheckout}
@@ -276,6 +290,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 10,
     // paddingBottom: 20
+    // paddingTop: 2
 
   },
   error: {

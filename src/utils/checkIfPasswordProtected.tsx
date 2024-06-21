@@ -65,3 +65,33 @@ export const adminApiClient = async (query: string, variables: any | null = null
     });
     return p
 }
+
+export const createOrder = async (order) => {
+    // console.log("Order Data:", JSON.stringify(orderData, null, 2)); // Log the order data
+    // console.log("Order Data:", JSON.stringify(orderData, null, 2)); // Log the order data
+
+    // console.log(orderData)
+    // const orderData = JSON.stringify(order)
+    try {
+        const response = await axios.post(`${baseUrl}/orders.json`, { order }, {
+            headers: {
+                'X-Shopify-Access-Token': accessToken,
+                'Content-Type': 'application/json'
+            }
+        });
+        return response.data.order;
+    } catch (error) {
+        if (error.response) {
+            // The request was made and the server responded with a status code
+            // that falls out of the range of 2xx
+            console.error('Error creating order within createOrder function:', error.response.data);
+        } else if (error.request) {
+            // The request was made but no response was received
+            console.error('Error creating order: No response received', error.request);
+        } else {
+            // Something happened in setting up the request that triggered an Error
+            console.error('Error creating order:', error.message);
+        }
+        throw error;
+    }
+}

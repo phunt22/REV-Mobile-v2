@@ -15,6 +15,8 @@ import phone from '../assets/phone.png'
 import { storefrontApiClient } from '../utils/storefrontApiClient'
 import { Order } from '../types/dataTypes'
 import fonts from '../../App'
+import { stores } from '../utils/schoolObjects'
+import { useLocations } from '../context/LocationsContext'
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'Profile'>
 
@@ -25,6 +27,16 @@ const Profile = ({ navigation }: Props) => {
   const [isLoading, setIsLoading] = useState<Boolean>(false)
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [numOrders, setNumOrders] = useState<number>(0);
+  const { selectedLocation, isLoading: isLoadingLocations, resetLocation } = useLocations();
+
+
+
+  const [storeHours, setStoreHours] = useState<string>('');
+
+  useEffect(() => {
+    setStoreHours(selectedLocation.storeHours)
+  }, [selectedLocation])
+
 
   // useEffect(() => {
   //   navigation.setOptions({
@@ -156,6 +168,8 @@ const Profile = ({ navigation }: Props) => {
 
 
 
+
+
         {/* FEATURES COMING SOON */}
         {/* using 0.5 hours per order? */}
         {/* using 0.8 because 400g (0.4kg) of co2 emitted per mile of driving */}
@@ -165,7 +179,7 @@ const Profile = ({ navigation }: Props) => {
         </Text>
 
         {/* REVPASS COMING SOON */}
-        <TouchableOpacity style={{
+        {/* <TouchableOpacity style={{
           backgroundColor: '#FFFFFF', borderRadius: 8, height: 50, display: 'flex', justifyContent: 'center',
           marginBottom: 40,
           shadowRadius: 5,
@@ -180,7 +194,7 @@ const Profile = ({ navigation }: Props) => {
               Coming Soon!
             </Text>
           </View>
-        </TouchableOpacity >
+        </TouchableOpacity > */}
 
         {/* REV REWARDS Coming Soon! */}
         {/* <TouchableOpacity style={{
@@ -218,11 +232,11 @@ const Profile = ({ navigation }: Props) => {
       {/* Lower */}
       <View style={{ flex: 1, justifyContent: 'flex-start', flexDirection: 'column', marginBottom: 75 }} >
         {/* STORE HOURS */}
-        < View style={{
+        <View style={{
           flexDirection: 'column',
           justifyContent: 'flex-start',
           alignItems: 'flex-start',
-          height: 130,
+          height: 100,
           marginBottom: 24,
           // borderWidth: 1,
           borderRadius: 8,
@@ -231,16 +245,20 @@ const Profile = ({ navigation }: Props) => {
           shadowOffset: { width: 0, height: 0 },
           shadowOpacity: 0.6
         }}>
-          <View style={{ display: 'flex', marginLeft: 12, marginTop: 10 }}>
+          <View style={{ display: 'flex', marginLeft: 12, marginTop: 10, }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: '#4B2D83' }}>
               Store Hours
             </Text>
-            <View style={{ marginLeft: 8, marginTop: 16, flex: 1, flexDirection: 'column', justifyContent: 'space-between', marginBottom: 20 }}>
+            <View style={{ marginLeft: 8, marginTop: 4, flex: 1, flexDirection: 'column', justifyContent: 'space-between', marginBottom: 0 }}>
+              <Text style={{ fontSize: 18, fontWeight: '300', flexWrap: 'wrap', lineHeight: 24 }}>
+                {typeof storeHours === 'string' ? storeHours : ""}
+              </Text>
+
+              {/* <Text style={{ fontSize: 18, fontWeight: '300' }}>{storeHours}</Text>
               <Text style={{ fontSize: 18, fontWeight: '300' }}>Sunday - Thursday: 11AM - 12AM</Text>
               <View style={{ width: 250, height: 1, borderRadius: 2, backgroundColor: '#3C3C4333' }}></View>
-              <Text style={{ fontSize: 18, fontWeight: '300', }}>Friday - Saturday: 11AM - 1AM</Text>
+              <Text style={{ fontSize: 18, fontWeight: '300', }}>Friday - Saturday: 11AM - 1AM</Text> */}
             </View>
-
           </View>
         </View>
 
@@ -287,6 +305,20 @@ const Profile = ({ navigation }: Props) => {
 
           </View>
         </View>
+
+
+
+
+        {/* View other stores */}
+        {/* <Text>You are currently viewing {stores[selectedLocation.name].name}</Text> */}
+        {/* <TouchableOpacity style={styles.cardContainer}
+          onPress={() => resetLocation()}>
+          <Text style={{ fontSize: 13, fontWeight: 'bold', marginLeft: 26 }}>View other locations</Text>
+          <View style={{ marginRight: 4 }}>
+            <RightArrowIcon size={40} color={'#4B2D83'} />
+          </View>
+        </TouchableOpacity> */}
+
         {/* JOIN THE TEAM */}
         <TouchableOpacity
           style={styles.cardContainer}
@@ -301,6 +333,8 @@ const Profile = ({ navigation }: Props) => {
           </View>
         </TouchableOpacity>
       </View>
+
+
     </View >
   )
 }
@@ -348,13 +382,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     height: 50,
-    marginBottom: 8,
+    marginBottom: 15,
     // borderWidth: 1,
     borderRadius: 8,
     backgroundColor: '#FFFFFF',
     shadowColor: 'black', shadowRadius: 1,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.6
+
   }
 })
 

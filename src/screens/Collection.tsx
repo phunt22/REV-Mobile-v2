@@ -12,6 +12,7 @@ import splash from '../assets/splash.png'
 import { TextInput } from 'react-native-gesture-handler'
 import Icon from 'react-native-vector-icons/FontAwesome';
 import { config } from '../../config'
+import { useLocations } from '../context/LocationsContext'
 
 
 const screenWidth = Dimensions.get('screen').width
@@ -32,6 +33,9 @@ const Collection = ({ route, navigation }: Props) => {
   const { StatusBarManager } = NativeModules
   const [sbHeight, setsbHeight] = useState<any>(StatusBar.currentHeight)
   const [products, setProducts] = useState<Product[]>([])
+
+  const { productIds } = useLocations();
+  const [filteredCollectionByLocation, setFilteredCollectionByLocation] = useState<any[] | null>([]);
 
   const windowWidth = Dimensions.get('window').width
   const screenWidth = Dimensions.get('screen').width
@@ -56,6 +60,16 @@ const Collection = ({ route, navigation }: Props) => {
   }, [searchInput]);
 
 
+  // helper method to filter the collection for the given store
+  const filterCollection = (collection) => {
+    const filteredCollection = []
+    collection && collection.products.nodes.map(product => {
+      productIds.includes(product.id) && filteredCollection.push(product)
+    })
+    return filteredCollection
+  }
+
+
   useEffect(() => {
     if (debouncedSearchTerm) {
       search();
@@ -63,6 +77,7 @@ const Collection = ({ route, navigation }: Props) => {
       setProducts([]);
     }
   }, [debouncedSearchTerm]);
+
   //   if (searchInput.length > 0) {
   //     try {
   //       search();
@@ -106,7 +121,7 @@ const Collection = ({ route, navigation }: Props) => {
     })
   }, [collection])
 
-  const fetchDetailedProductInfo = async (productIds) => {
+  const fetchDetailedProductInfo = async (filteredProductIds) => {
     const GET_PRODUCT_DETAILS_QUERY = `
 query getProductDetails($id: ID!) {
   node(id: $id) {
@@ -153,7 +168,7 @@ query getProductDetails($id: ID!) {
 }`;
     try {
       const detailedProductInfo = await Promise.all(
-        productIds.map(async (id: string) => {
+        filteredProductIds.map(async (id: string) => {
           const response: any = await storefrontApiClient(GET_PRODUCT_DETAILS_QUERY, { id });
           if (response.errors) {
             console.error("Error fetching details for product ID:", id, response.errors);
@@ -213,10 +228,19 @@ query getProductDetails($id: ID!) {
         return;
       }
 
-      // Assuming the API call is successful and data is retrieved properly
-      const productIds = searchResponse.data.search.edges.map(edge => edge.node.id);
+      const unfilteredProductIds = searchResponse.data.search.edges.map(edge => edge.node.id);
+
+      // commented out, as we have pulled support for this feature
+      // const filteredProducts = [];
+      // searchResponse.data.search.edges.map(product => {
+      //   if (productIds.includes(product.node.id)) {
+      //     filteredProducts.push(product.node.id)
+      //   }
+      // }
+      // )
+
       // fetch more details
-      const detailedProducts = await fetchDetailedProductInfo(productIds);
+      const detailedProducts = await fetchDetailedProductInfo(unfilteredProductIds);
       const sortedProducts = detailedProducts.sort((a, b) => {
         const titleMatchA = a.title.toLowerCase() === searchInput.toLowerCase() ? 1 : 0;
         const titleMatchB = b.title.toLowerCase() === searchInput.toLowerCase() ? 1 : 0;
@@ -300,8 +324,8 @@ query getProductDetails($id: ID!) {
       setIsLoading(false)
       throw response.errors[0].message
     }
-
     setCollection(response.data.collection)
+    // setFilteredCollectionByLocation(filterCollection(response.data.collection))
 
     setIsLoading(false)
   }
@@ -356,6 +380,7 @@ query getProductDetails($id: ID!) {
           onChangeText={(text) => setSearchInput(text)}
           value={searchInput}
           autoCapitalize='none'
+          autoCorrect={false}
         />
         {searchInput && searchInput.length !== 0 ? (<TouchableOpacity onPress={() => setSearchInput('')}
           style={{ width: 25, height: 25, borderRadius: 20, backgroundColor: 'gray', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 2 }}
@@ -410,14 +435,24 @@ query getProductDetails($id: ID!) {
 
                 <View style={{ paddingTop: 10, }}>
                   {/* <PopularThumbNail color='black' size={24} /> */}
+                  {collection.length === 0 ? (
+                    <View style={{ display: 'flex', width: '100%', height: '90%', justifyContent: 'center', alignItems: 'center' }}>
+                      <Text>
+                        No items for this category in this store!
+                      </Text>
+                    </View>
+                  ) : (
 
-                  <FlatList
-                    data={collection.products.nodes as Product[]}
-                    renderItem={({ item }) => <ProductCard data={item} />}
-                    keyExtractor={(item) => item.id}
-                    numColumns={2}
-                    contentContainerStyle={{ paddingHorizontal: 14, flexGrow: 1, paddingBottom: 50, }}
-                  />
+                    <FlatList
+                      // data={collection.products.nodes as Product[]}
+                      data={collection.products.nodes as Product[]}
+                      renderItem={({ item }) => <ProductCard data={item} />}
+                      keyExtractor={(item) => item.id}
+                      numColumns={2}
+                      contentContainerStyle={{ paddingHorizontal: 14, flexGrow: 1, paddingBottom: 50, }}
+                    />
+                  )}
+
                 </View>
               )}
             </>
