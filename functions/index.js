@@ -13,22 +13,22 @@ const functions = require('firebase-functions');
 const Stripe = require('stripe')
 const bodyParser = require('body-parser');
 const express = require('express')
-const cors = require('cors')({ origin: true });
+const cors = require('cors')
 const { onRequest } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 
 // initialize app, use cors and body parser
 const app = express();
-app.use(cors);
-app.use((req, res, next) => {
-    bodyParser.json()(req, res, next);
-});
-
-
-
-// these will be changed to be .env variables. These are just the test ones so it's pretty chill tho
-// const STRIPE_PUBLISHABLE_KEY = 'pk_test_51PQBqcBkMj8o1fAjle0zb8bQBT8OsMzIBR6SxbGXR5pSPkm8V3b8ZD53vUjP3eZbw8y4oE5NTThqsvgJJPfUjaMu00jAYI2UKS'
-// const STRIPE_SECRET_KEY = 'sk_test_51PQBqcBkMj8o1fAjBUhaukx2mwvcTec6s6UtjIEd7Ew3k50ScKkxRRL9nbgALFT4QzU3CGLwUZERxz8Dnd2jBKzW00CsTdyLiM'
+const corsOptions = {
+    origin: true,
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+};
+app.use(cors(corsOptions));
+app.use(bodyParser.json())
+// app.use((req, res, next) => {
+//     bodyParser.json()(req, res, next);
+// });
 
 // Create and deploy your first functions
 // https://firebase.google.com/docs/functions/get-started
@@ -83,6 +83,11 @@ app.post('/payment-sheet', async (req, res) => {
     }
 });
 
+
+// test function to ensure that things are being properly called in testflight
+app.get('/test', (req, res) => {
+    res.send('Hello from Firebase!');
+})
 
 // export our express app as a firebase cloud function???? Hopefully that works
 exports.api = functions.https.onRequest(app);

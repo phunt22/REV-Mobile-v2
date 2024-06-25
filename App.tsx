@@ -25,12 +25,12 @@ import { LocationsProvider, useLocations } from './src/context/LocationsContext'
 import { stores } from './src/utils/schoolObjects'
 import { StripeProvider } from '@stripe/stripe-react-native'
 import { REACT_APP_STRIPE_PUB_KEY } from '@env'
-import OrderConfirmation from './src/screens/OrderConfirmation'
 
 
 
 
 export default function App() {
+
 
   // rendering just the start, to limit the amount of renders on main app
   return (
@@ -57,7 +57,7 @@ function MainApp() {
 
 
   // this is the locations information
-  const { selectedLocation, isLoading: locationsLoading } = useLocations();
+  const { selectedLocation, isLoading: locationsLoading, selectLocation, locations } = useLocations();
 
 
   useEffect(() => {
@@ -86,7 +86,6 @@ function MainApp() {
   // if(!location) {
 
   // }
-
   if (!selectedLocation) {
     return (
       <LocationSelectionScreen />
@@ -241,11 +240,17 @@ const ClosedView = ({ continueExploring }) => {
 
 
 const LocationSelectionScreen = () => {
-  const { locations, selectLocation } = useLocations();
+  const { locations, selectLocation, selectedLocation } = useLocations();
+  useEffect(() => {
+    const uwSeattle_id = "gid://shopify/Location/87011950880"
+    const uwSeattle = locations.filter(location => location.id === uwSeattle_id)[0];
+    selectLocation(uwSeattle)
+  })
 
   const handleSelectLocation = (location) => {
     selectLocation(location);
   };
+
 
 
   return (
@@ -294,7 +299,7 @@ const LocationSelectionScreen = () => {
 
                   {/* this is where the image logo will go. Right now is just filler */}
                 </View >
-                <Text style={{ fontSize: 28, fontWeight: '600', marginBottom: -2, color: stores[name].logo_color }}>{stores[name].name}</Text>
+                <Text style={{ fontSize: 22, fontWeight: '600', marginBottom: -2, color: stores[name].logo_color }}>{stores[name].name}</Text>
               </View>
             </TouchableOpacity>
           )

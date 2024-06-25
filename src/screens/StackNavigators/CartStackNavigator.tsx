@@ -6,6 +6,8 @@ import { NavigationContainer } from '@react-navigation/native'
 import Cart from '../Cart'
 import ShippingAddress from '../ShippingAdress'
 import OrderConfirmation from '../OrderConfirmation'
+import PickupConfirmation from '../PickupConfirmation'
+
 
 const CartStack = createNativeStackNavigator<CartStackParamList>()
 
@@ -33,6 +35,15 @@ const CartStackNavigator = () => {
         <CartStack.Screen
           name='OrderConfirmation'
           component={OrderConfirmation}
+          options={{
+            headerShadowVisible: false
+          }}
+
+
+        />
+        <CartStack.Screen
+          name='PickupConfirmation'
+          component={PickupConfirmation}
           options={{
             headerShadowVisible: false
           }}

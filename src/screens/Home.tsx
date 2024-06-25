@@ -63,7 +63,6 @@ const Home = ({ navigation }: Props) => {
   const { selectedLocation, isLoading: isLoadingLocations, inventoryLevels, productIds } = useLocations();
   const [filteredPastItems, setFilteredPastItems] = useState<any[] | null>();
 
-
   useEffect(() => {
     if (Platform.OS === "ios") {
       StatusBarManager.getHeight((statusBarHeight: any) => {
@@ -724,7 +723,7 @@ const Home = ({ navigation }: Props) => {
       createSectionData();
     } catch (e) {
       setErrorMessage(e);
-      console.log(e)
+      // console.log(e)
     } finally {
       // setIsLoading(false)
     }

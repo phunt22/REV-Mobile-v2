@@ -88,13 +88,13 @@ export const CartContext = ({ children }: Props) => {
           cartItems.push(cartItem)
 
         } catch (e) {
-          console.log(e)
+          // console.log(e)
         }
       }
 
       setcartItems(cartItems)
     } catch (e) {
-      console.log(e)
+      // console.log(e)
     }
   }
 
@@ -227,8 +227,6 @@ export const CartContext = ({ children }: Props) => {
       })
     ))
   }
-
-
 
   return (
     <Context.Provider value={{ resetCart, getItemsCount, getTotalPrice, cartItems, addItemToCart, addQuantityOfItem, removeItemFromCart, substractQuantityOfItem, getProductQuantityInCart }}>

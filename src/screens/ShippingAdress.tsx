@@ -28,6 +28,7 @@ import { handleURLCallback, usePaymentSheet } from '@stripe/stripe-react-native'
 import axios from 'axios'
 
 import { REACT_APP_SHIPDAY_API_KEY, REACT_APP_FIREBASE_URL } from '@env'
+import { initialCalculations } from 'react-native-reanimated/lib/typescript/reanimated2/animation/springUtils'
 // const shipday = require('shipday/integration');
 // const OrderQueryRequest = require('shipday/integration/order/order.query.request');
 // const OrderState = require('shipday/integration/order/types/order.state');
@@ -38,7 +39,7 @@ import { REACT_APP_SHIPDAY_API_KEY, REACT_APP_FIREBASE_URL } from '@env'
 type Props = NativeStackScreenProps<CartStackParamList, 'ShippingAddress'>
 
 const ShippingAddress = ({ route, navigation }: Props) => {
-  const { selectedLocation } = useLocations(); // Get selected location
+  const { selectedLocation, isLocationOpen, updateLocationStatus } = useLocations(); // Get selected location
   const scrollViewRef = useRef<ScrollView>(null)
   const { userToken } = useAuthContext()
   const bottomSheetRef = useRef<BottomSheet>(null);
@@ -61,16 +62,17 @@ const ShippingAddress = ({ route, navigation }: Props) => {
     if (!selectedLocation.isOpen) {
       navigation.goBack()
     }
-
   }, [selectedLocation])
 
+
+  // this is outdated, as we no longer need to calculate tax since we get it from the previous.
   // in the future, tax data could be stored in location objects
   // will return them individually which is pretty chill. 
-  const calculateTax = (total) => {
-    const washTax = parseFloat(total) * 0.065;
-    const seaTax = parseFloat(total) * 0.0385;
-    return (washTax + seaTax).toFixed(2);
-  }
+  // const calculateTax = (total) => {
+  //   const washTax = parseFloat(total) * 0.065;
+  //   const seaTax = parseFloat(total) * 0.0385;
+  //   return (washTax + seaTax).toFixed(2);
+  // }
 
   useEffect(() => {
     if (Platform.OS === "ios") {
@@ -87,25 +89,10 @@ const ShippingAddress = ({ route, navigation }: Props) => {
     })
   }, [])
 
-  useEffect(() => {
-    const checkStoreStatus = async () => {
-      setIsLoading(true);
-      try {
-        const isPasswordProtected = await checkIfPasswordProtected();
-        setIsClosed(isPasswordProtected);
-      } catch (e) {
-
-      }
-    }
-    const check = async () => {
-      await checkIfPasswordProtected();
-    }
-    check();
-  }, [])
-
-
-  const { checkoutId, totalPrice } = route.params
+  const { cartId, totalPrice: subtotal, tax } = route.params
   // console.log(totalPrice)
+
+
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
 
@@ -128,12 +115,13 @@ const ShippingAddress = ({ route, navigation }: Props) => {
   const [selectedTipIndex, setSelectedTipIndex] = useState<number>(1);
   const [customTipAmount, setCustomTipAmount] = useState('0');
   const textInputRef = useRef<TextInput>(null);
+  const [total, setTotal] = useState<number>(null)
 
   // Calculate the subtotal
-  const subtotal = getTotalPrice();
+  // const subtotal = getTotalPrice();
 
   // Calculate the total taxes
-  const taxes = calculateTax(subtotal);
+  // const taxes = calculateTax(subtotal);
 
   // Define the delivery fee and tip
   const deliveryFee = selectedDeliveryMethod === 'Delivery' ? 0.99 : 0.00;
@@ -141,12 +129,18 @@ const ShippingAddress = ({ route, navigation }: Props) => {
 
   // Calculate the total amount
 
-  const calculateTotal = (subtotal, deliveryFee, tip, tax) => {
-    const total = (parseFloat(subtotal) + parseFloat(deliveryFee) + parseFloat(tip) + parseFloat(tax)).toFixed(2);
-    return total
+  const calculateTotal = (subtotal: number, tax: number, tip: number, deliveryFee: number): number => {
+    const total: number = subtotal + tax + tip + deliveryFee;
+    // console.log('total', total)
+    return parseFloat(total.toFixed(2));
+    // return parseFloat(total.toFixed(2)) // will effectively just round to 2 decimal places
   };
 
-  const total = calculateTotal(subtotal, deliveryFee, tip, taxes);
+  // this way, our total is always up to date
+  useEffect(() => {
+    const new_total: number = calculateTotal(subtotal, tax, tip, deliveryFee)
+    setTotal(new_total)
+  }, [subtotal, tax, tip, deliveryFee])
 
   // const { initPaymentSheet, presentPaymentSheet, loading } = usePaymentSheet();
   const {
@@ -179,10 +173,33 @@ const ShippingAddress = ({ route, navigation }: Props) => {
     //   }
     // }
     // testing();
-  }, [selectedDeliveryMethod, selectedTipIndex, customTipAmount])
+  }, [total]) // if our total changes, we want to get the new total
+
+  useEffect(() => {
+    // console.log('received params:')
+    // console.log('subtotal_ship:', subtotal)
+    // console.log('tax_ship:', tax)
+    // console.log('cartId_ship:', cartId)
+    calculateTotal(subtotal, tax, tip, deliveryFee)
+  }, [])
+
+
+  useEffect(() => {
+    const init = async () => {
+      setInitializing(true)
+      try {
+        await initializePaymentSheet();
+      } catch (e) {
+        setErrorMessage('Error initializing payment')
+      } finally {
+        setInitializing(false)
+      }
+    }
+  }, [total]) // want to change if we need to change the totla
 
 
   // added support for handling deep links as per Stripe docs. This was we can have a returnURL
+  // honestly, dont have a lot of code here because Im not doing too much
   const handleDeepLink = useCallback(
     async (url) => {
       if (url) {
@@ -190,10 +207,10 @@ const ShippingAddress = ({ route, navigation }: Props) => {
         if (stripeHandled) {
           // This was a Stripe URL - handle redirection
           // redirect();
-          console.log('STRIPE PAYMENT')
+          // console.log('STRIPE PAYMENT')
         } else {
           // This was NOT a Stripe URL – handle as you normally would
-          console.log('NOT STRIPE PAYMENT')
+          // console.log('NOT STRIPE PAYMENT')
         }
       }
     },
@@ -218,22 +235,24 @@ const ShippingAddress = ({ route, navigation }: Props) => {
     return () => deepLinkListener.remove();
   }, [handleDeepLink]);
 
-
   // this is what gets the parameters for the payment sheet
   const fetchPaymentSheetParams = async () => {
-    const firebaseURL = 'https://us-central1-revdelivery.cloudfunctions.net/api'
+    // this is just to ensure that we are able to connect to the api properly
     if (!total || !email) {
-      setErrorMessage('Something went wrong, we couldn\'t find your email or total')
+      setErrorMessage("Something went wrong, we couldn\'t find your email or total")
       return
     }
-
-
     try {
-
-      const response = await axios.post(`${firebaseURL}/payment-sheet`, {
+      const response = await axios.post(`${REACT_APP_FIREBASE_URL}/payment-sheet`, {
         email: userToken.customer.email,
-        totalPrice: parseFloat(total),
+        totalPrice: total, // straight from the previous page, which was given to us by shopify
       });
+
+      if (!response || !response.data) {
+        setErrorMessage('Invalid API Response')
+        return;
+        // throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
       const { paymentIntent, ephemeralKey, customer } = response.data;
       // setErrorMessage('We got a response:' + 'payment:' + paymentIntent + 'eph' + ephemeralKey + 'cust' + customer)
@@ -249,11 +268,6 @@ const ShippingAddress = ({ route, navigation }: Props) => {
       //     totalPrice: parseFloat(total),
       //   })
       // });
-
-      if (!response) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
 
 
 
@@ -273,19 +287,24 @@ const ShippingAddress = ({ route, navigation }: Props) => {
       }      // console.log(response.json())
       return { paymentIntent, ephemeralKey, customer };
     } catch (e) {
-      console.log('fetch PS', e)
-      setErrorMessage(e.message + 'Seems like something is wrong with our servers. \nPlease check back later!' +
-        firebaseURL,)
-      return //idk wtf I wold return here lmao
+      // console.log('fetch PS', e)
+      setErrorMessage('Seems like something is wrong with our servers. \nPlease check back later!' + '\n' + e.message
+      )
+      return null //idk wtf I wold return here lmao
     }
   };
 
 
   const initializePaymentSheet = async () => {
-    const { paymentIntent, ephemeralKey, customer } = await fetchPaymentSheetParams();
-    if (!paymentIntent) {
-      return
-    }
+    const params = await fetchPaymentSheetParams();
+    if (!params) { return }
+    const { paymentIntent } = params
+    if (!paymentIntent) { setErrorMessage('Issue with our servers! No payment intent was formed'); return; }
+
+    // const { paymentIntent, ephemeralKey, customer } = await fetchPaymentSheetParams();
+    // if (!paymentIntent) {
+    //   return
+    // }
     const { error } = await initPaymentSheet({
       appearance: {
         primaryButton: {
@@ -315,7 +334,7 @@ const ShippingAddress = ({ route, navigation }: Props) => {
     if (error) {
       // console.log(error)
       // Alert.alert(`Error code: ${error.code}`, error.message);
-      console.log('init PS', error)
+      // console.log('init PS', error)
       return false
     } else {
       setReady(true);
@@ -349,14 +368,17 @@ const ShippingAddress = ({ route, navigation }: Props) => {
   // }
 
   const buy = async () => {
-    // put all of my fail safes here
-    if (!selectedLocation.isOpen || !email || !phone || !selectedDeliveryMethod || !total || !) {
-      return;
-    }
+    // // put all of my fail safes here
+    // if (!selectedLocation.isOpen || !email || !selectedDeliveryMethod || !total || ) {
+    //   return;
+    // }
     const { error } = await presentPaymentSheet();
     if (error) {
       // Alert.alert(`Error code: ${error.code}`, error.message);
-      return
+      if (error.message !== 'The payment has been canceled') { // 
+        setErrorMessage(`Payment failed: ${error.message}`)
+      }
+      return false
     } else {
       setReady(false);
       // Alert.alert('successful payment wtf')
@@ -366,7 +388,12 @@ const ShippingAddress = ({ route, navigation }: Props) => {
 
   const redirect = () => {
     resetCart();
-    navigation.navigate('OrderConfirmation')
+    if (selectedDeliveryMethod === 'Delivery') {
+      navigation.navigate('OrderConfirmation')
+    } else {
+      navigation.navigate('PickupConfirmation')
+    }
+
   }
 
 
@@ -379,14 +406,21 @@ const ShippingAddress = ({ route, navigation }: Props) => {
     // LOT OF SANITY CHECKS HERE
     // make sure that the store is open
     // make sure that the needed fields are present
+    if (!email) {
+      setErrorMessage('You need an email to checkout! \n Enter it under Personal Information')
+    }
 
+    if (!isLocationOpen(selectedLocation.id)) {
+      updateLocationStatus(selectedLocation.id, false)
+    }
 
 
     // ensure that we have things like address, phone, etc. etc. 
 
 
+    let stripeSuccess: boolean = false;
     try {
-      const stripeSuccess = await buy();
+      stripeSuccess = await buy();
       if (!stripeSuccess) {
         return
       }
@@ -398,41 +432,46 @@ const ShippingAddress = ({ route, navigation }: Props) => {
         return
       }
 
-      if (selectedDeliveryMethod === 'Delivery') { // because we dont put in-store pickup orders on shipday
-        const order = {
-          orderNumber: orderNum, // this is gotten from the shopify order
-          orderItems: cartItems.map(item => ({
-            name: item.title,
-            unitPrice: item.price.amount,
-            quantity: item.quantity,
-          })),
-          delivery: {
-            name: userToken.firstName + userToken.lastName,
-            address: `${address1}, ${city}, Washington, United States, ${zip}`,
-            phone: userToken.phone,
-            email: userToken.email,
-            lat: '', // leaving these blank because they are annoying to get :/
-            lng: '', // leaving these blank because they are annoying to get :/
-          },
-          orderTotal: parseFloat(total),
-          deliveryFee: selectedDeliveryMethod === 'Delivery' ? 0.99 : 0,
-          tip: tip,
-          tax: taxes,
-        };
+      // uncomment this to manually send to shipday. Currently will automatically send to shipday. 
+      // if (selectedDeliveryMethod === 'Delivery') { // because we dont put in-store pickup orders on shipday
+      //   const order = {
+      //     orderNumber: orderNum, // this is gotten from the shopify order
+      //     orderItems: cartItems.map(item => ({
+      //       name: item.title,
+      //       unitPrice: item.price.amount,
+      //       quantity: item.quantity,
+      //     })),
+      //     delivery: {
+      //       name: userToken.firstName + userToken.lastName,
+      //       address: `${address1}, ${city}, Washington, United States, ${zip}`,
+      //       phone: userToken.phone,
+      //       email: userToken.email,
+      //       lat: '', // leaving these blank because they are annoying to get :/
+      //       lng: '', // leaving these blank because they are annoying to get :/
+      //     },
+      //     orderTotal: parseFloat(total),
+      //     deliveryFee: selectedDeliveryMethod === 'Delivery' ? 0.99 : 0,
+      //     tip: tip,
+      //     tax: taxes,
+      //   };
 
-        // do not send to shipday, it will automatically do that I think lol
-        // const shipdaySuccess = await sendToShipday(order);
-        // if (!shipdaySuccess) {
-        //   setErrorMessage('Look like something went wrong. Please try again')
-        //   console.log("FAILED TO SEND TO SHIPDAY")
-        //   return
-        // }
-      }
-      console.log('SUCCESS!')
+      //   // do not send to shipday, it will automatically do that I think lol
+      //   // const shipdaySuccess = await sendToShipday(order);
+      //   // if (!shipdaySuccess) {
+      //   //   setErrorMessage('Look like something went wrong. Please try again')
+      //   //   console.log("FAILED TO SEND TO SHIPDAY")
+      //   //   return
+      //   // }
+      // }
       redirect()
     } catch (error) {
       // console.error('Error during checkout:', error);
-      setErrorMessage('Looks like something went wrong. Please try again later.');
+      if (stripeSuccess === true) {
+        setErrorMessage('Oops! Something went wrong with your order.\nPlease contact us if your payment went through')
+      } else {
+        setErrorMessage('Looks like something went wrong. Please try again later.');
+      }
+
     }
   }
 
@@ -451,165 +490,164 @@ const ShippingAddress = ({ route, navigation }: Props) => {
 
 
     try {
-      console.log(selectedDeliveryMethod)
+      // console.log(selectedDeliveryMethod)
 
       let shippingLine = {};
+      // if (selectedDeliveryMethod === "Pickup") {
+      // shippingLine = {
+      //   title: "Local pickup",
+      //   code: "Pickup",
+      //   price: 0.00,
+      //   price_set: {
+      //     shop_money: {
+      //       amount: "0.00",
+      //       currency_code: "USD"
+      //     },
+      //     presentment_money: {
+      //       amount: "0.00",
+      //       currency_code: "USD"
+      //     }
+      //   }
+      // };
+
+      // // shippingLine = {
+      // //   title: "Local pickup",
+      // //   code: "Pickup",
+      // //   source: "shopify",
+      // //   originalPriceSet: {
+      // //     shopMoney: {
+      // //       amount: "0.00",
+      // //       currencyCode: "USD"
+      // //     },
+      // //     presentmentMoney: {
+      // //       amount: "0.00",
+      // //       currencyCode: "USD"
+      // //     }
+      // //   }
+      // // };
+      //   shippingLine = {
+      //     id: 4681342091552,
+      //     carrier_identifier: "650f1a14fa979ec5c74d063e968411d4",
+      //     code: "UW Store",
+      //     discounted_price: "0.00",
+      //     discounted_price_set: {
+      //       shop_money: {
+      //         amount: "0.00",
+      //         currency_code: "USD"
+      //       },
+      //       presentment_money: {
+      //         amount: "0.00",
+      //         currency_code: "USD"
+      //       }
+      //     },
+      //     phone: phone,
+      //     email: email,
+      //     price: "0.00",
+      //     price_set: {
+      //       shop_money: {
+      //         amount: "0.00",
+      //         currency_code: "USD"
+      //       },
+      //       presentment_money: {
+      //         amount: "0.00",
+      //         currency_code: "USD"
+      //       }
+      //     },
+      //     source: "shopify",
+      //     title: "UW Store",
+      //     tax_lines: [],
+      //     discount_allocations: []
+      //   }
+      // } else if (selectedDeliveryMethod === "Delivery") {
+      //   // shippingLine = {
+      //   //   title: "Delivery Fee - UW",
+      //   //   code: "Delivery",
+      //   //   source: "shopify",
+      //   //   originalPriceSet: {
+      //   //     shopMoney: {
+      //   //       amount: "0.99",
+      //   //       currencyCode: "USD"
+      //   //     },
+      //   //     presentmentMoney: {
+      //   //       amount: "0.99",
+      //   //       currencyCode: "USD"
+      //   //     }
+      //   //   }
+      //   // };
+      //   // shippingLine = {
+      //   //   carrier_identifier: "736c7301c5a02f233a576b183445b66f",
+      //   //   title: "Delivery Fee - UW",
+      //   //   code: "Delivery",
+      //   //   price: "0.99",
+      //   // };
+      //   shippingLine = {
+      //     title: "Delivery Fee - UW",
+      //     code: "Delivery",
+      //     price: "0.99",
+      //     price_set: {
+      //       shop_money: {
+      //         amount: "0.99",
+      //         currency_code: "USD"
+      //       },
+      //       presentment_money: {
+      //         amount: "0.99",
+      //         currency_code: "USD"
+      //       }
+      //     },
+      //     phone: phone,
+      //     email: email,
+      //     carrier_identifier: "736c7301c5a02f233a576b183445b66f", // carrier ID for delivery. 
+      //     source: "shopify",
+      //     tax_lines: [],
+      //     discount_allocations: []
+      //   };
       if (selectedDeliveryMethod === "Pickup") {
-        // shippingLine = {
-        //   title: "Local pickup",
-        //   code: "Pickup",
-        //   price: 0.00,
-        //   price_set: {
-        //     shop_money: {
-        //       amount: "0.00",
-        //       currency_code: "USD"
-        //     },
-        //     presentment_money: {
-        //       amount: "0.00",
-        //       currency_code: "USD"
-        //     }
-        //   }
-        // };
-
-        // // shippingLine = {
-        // //   title: "Local pickup",
-        // //   code: "Pickup",
-        // //   source: "shopify",
-        // //   originalPriceSet: {
-        // //     shopMoney: {
-        // //       amount: "0.00",
-        // //       currencyCode: "USD"
-        // //     },
-        // //     presentmentMoney: {
-        // //       amount: "0.00",
-        // //       currencyCode: "USD"
-        // //     }
-        // //   }
-        // // };
-        //   shippingLine = {
-        //     id: 4681342091552,
-        //     carrier_identifier: "650f1a14fa979ec5c74d063e968411d4",
-        //     code: "UW Store",
-        //     discounted_price: "0.00",
-        //     discounted_price_set: {
-        //       shop_money: {
-        //         amount: "0.00",
-        //         currency_code: "USD"
-        //       },
-        //       presentment_money: {
-        //         amount: "0.00",
-        //         currency_code: "USD"
-        //       }
-        //     },
-        //     phone: phone,
-        //     email: email,
-        //     price: "0.00",
-        //     price_set: {
-        //       shop_money: {
-        //         amount: "0.00",
-        //         currency_code: "USD"
-        //       },
-        //       presentment_money: {
-        //         amount: "0.00",
-        //         currency_code: "USD"
-        //       }
-        //     },
-        //     source: "shopify",
-        //     title: "UW Store",
-        //     tax_lines: [],
-        //     discount_allocations: []
-        //   }
-        // } else if (selectedDeliveryMethod === "Delivery") {
-        //   // shippingLine = {
-        //   //   title: "Delivery Fee - UW",
-        //   //   code: "Delivery",
-        //   //   source: "shopify",
-        //   //   originalPriceSet: {
-        //   //     shopMoney: {
-        //   //       amount: "0.99",
-        //   //       currencyCode: "USD"
-        //   //     },
-        //   //     presentmentMoney: {
-        //   //       amount: "0.99",
-        //   //       currencyCode: "USD"
-        //   //     }
-        //   //   }
-        //   // };
-        //   // shippingLine = {
-        //   //   carrier_identifier: "736c7301c5a02f233a576b183445b66f",
-        //   //   title: "Delivery Fee - UW",
-        //   //   code: "Delivery",
-        //   //   price: "0.99",
-        //   // };
-        //   shippingLine = {
-        //     title: "Delivery Fee - UW",
-        //     code: "Delivery",
-        //     price: "0.99",
-        //     price_set: {
-        //       shop_money: {
-        //         amount: "0.99",
-        //         currency_code: "USD"
-        //       },
-        //       presentment_money: {
-        //         amount: "0.99",
-        //         currency_code: "USD"
-        //       }
-        //     },
-        //     phone: phone,
-        //     email: email,
-        //     carrier_identifier: "736c7301c5a02f233a576b183445b66f", // carrier ID for delivery. 
-        //     source: "shopify",
-        //     tax_lines: [],
-        //     discount_allocations: []
-        //   };
-        if (selectedDeliveryMethod === "Pickup") {
-          shippingLine = {
-            carrier_identifier: "650f1a14fa979ec5c74d063e968411d4",
-            location_id: 123456789,
-            delivery_category: null,
-            title: "UW Store",
-            code: "UW Store",
-            price: "0.00",
-            price_set: {
-              shop_money: {
-                amount: "0.00",
-                currency_code: "USD"
-              },
-              presentment_money: {
-                amount: "0.00",
-                currency_code: "USD"
-              }
+        shippingLine = {
+          carrier_identifier: "650f1a14fa979ec5c74d063e968411d4",
+          delivery_category: null,
+          title: "UW Store",
+          code: "UW Store",
+          price: "0.00",
+          price_set: {
+            shop_money: {
+              amount: "0.00",
+              currency_code: "USD"
             },
-            source: "shopify",
-            tax_lines: [],
-            // "carrier_identifier": null,
-            discount_allocations: []
-          };
-        } else if (selectedDeliveryMethod === "Delivery") {
-          shippingLine = {
-            title: "Delivery Fee - UW",
-            code: "Delivery",
-            price: "0.99",
-            price_set: {
-              shop_money: {
-                amount: "0.99",
-                currency_code: "USD"
-              },
-              presentment_money: {
-                amount: "0.99",
-                currency_code: "USD"
-              }
+            presentment_money: {
+              amount: "0.00",
+              currency_code: "USD"
+            }
+          },
+          source: "shopify",
+          tax_lines: [],
+          // "carrier_identifier": null,
+          discount_allocations: []
+        };
+      } else if (selectedDeliveryMethod === "Delivery") {
+        shippingLine = {
+          title: "Delivery Fee - UW",
+          code: "Delivery",
+          price: "0.99",
+          price_set: {
+            shop_money: {
+              amount: "0.99",
+              currency_code: "USD"
             },
-            carrier_identifier: "736c7301c5a02f233a576b183445b66f",
-            source: "shopify",
-            tax_lines: [],
-            discount_allocations: []
-          };
-        }
-
+            presentment_money: {
+              amount: "0.99",
+              currency_code: "USD"
+            }
+          },
+          carrier_identifier: "736c7301c5a02f233a576b183445b66f",
+          source: "shopify",
+          tax_lines: [],
+          discount_allocations: []
+        };
       }
 
-      console.log('shipLine', shippingLine)
+      // }
+
+      // console.log('shipLine', shippingLine)
 
       const lineItems: any = cartItems.map(item => ({
         variant_id: parseInt(item.id.split('/').pop()),  // Ensure variant_id is a plain numeric string
@@ -618,12 +656,12 @@ const ShippingAddress = ({ route, navigation }: Props) => {
         price: item.price.amount.toString(), // make sure this is a string
         "tax_lines": [
           {
-            "price": parseFloat((item.price.amount * item.quantity * 0.065).toFixed(2)).toString(), // 6.5% state tax
+            "price": parseFloat((item.price.amount * item.quantity * 0.065).toFixed(2)).toFixed(2), // 6.5% state tax
             "rate": 0.065,
             "title": "Washington State Tax"
           },
           {
-            "price": parseFloat((item.price.amount * item.quantity * 0.0385).toFixed(2)).toString(), // 3.85% city tax
+            "price": parseFloat((item.price.amount * item.quantity * 0.0385).toFixed(2)).toFixed(2), // 3.85% city tax
             "rate": 0.0385,
             "title": "Seattle City Tax"
           }
@@ -636,7 +674,6 @@ const ShippingAddress = ({ route, navigation }: Props) => {
 
 
       const nonStrings = lineItems.filter(item => typeof item.price !== 'string')
-      console.log(nonStrings.length)
       // add the user tip
       // const tipAmount = 2.83;
 
@@ -653,7 +690,6 @@ const ShippingAddress = ({ route, navigation }: Props) => {
 
       // HERE IS WHERE WE CREATE THE ORDER WITHIN SHOPIFY
       // TODO: handle discounts, fix locations, fix delivery
-      console.log(shippingLine)
       const order = await createOrder({
         line_items: lineItems,
         customer: {
@@ -690,17 +726,19 @@ const ShippingAddress = ({ route, navigation }: Props) => {
         //   zip: zip,
         //   phone: phone,
         // },
-        shipping_lines: selectedDeliveryMethod === 'Delivery' ? [shippingLine] : undefined, // this is fucked
+        shipping_lines: selectedDeliveryMethod === 'Delivery' ? [shippingLine] : undefined, // this is fucked I think???
         location_id: selectedLocation.id.split('/').pop(),
         financial_status: "paid",
-        total_price: total, // i think these are right
-        subtotal_price: totalPrice,
-        total_tax: taxes,
+        // these are the 3 that come from the shopify, they are essentially just going back into it lol
+        // they are stored as numbers, but need to be strings to hit em w toFixed2
+        total_price: total.toFixed(2),
+        subtotal_price: subtotal.toFixed(2),
+        total_tax: tax.toFixed(2),
         note: orderNotes,
         tags: ["REV Mobile v2"]
       });
-      console.log('Order created:', order);
-      console.log(order.name)
+      // console.log('Order created:', order);
+      // console.log(order.name)
       return order.name;
     } catch (error) {
       console.error('Error during checkout:', error);
@@ -710,7 +748,7 @@ const ShippingAddress = ({ route, navigation }: Props) => {
   }
 
 
-  // none of shipday has been implemented yet. This is coming soon!
+  // none of shipday has been implemented yet. This is actually not needed!!!!
 
   const sendToShipday = async (order) => {
     const SHIPDAY_API_URL = 'https://api.shipday.com/orders';
@@ -749,7 +787,7 @@ const ShippingAddress = ({ route, navigation }: Props) => {
         tax: order.tax
       }
     };
-    console.log(typeof orderPayload.orderItems[0].unitPrice)
+    // console.log(typeof orderPayload.orderItems[0].unitPrice)
     try {
       const response = await axios.post(SHIPDAY_API_URL, orderPayload, {
         headers: {
@@ -757,10 +795,10 @@ const ShippingAddress = ({ route, navigation }: Props) => {
           'Authorization': `Bearer ${shipdayAPIKey}`
         }
       });
-      console.log('order inserted successfully')
+      // console.log('order inserted successfully')
       return true;
     } catch (e) {
-      console.log(e)
+      // console.log(e)
       return false;
     }
     return false;
@@ -791,7 +829,7 @@ const ShippingAddress = ({ route, navigation }: Props) => {
       }`;
 
       const variables = {
-        checkoutId,
+        cartId,
         shippingRateHandle: "shopify-Delivery%20Fee%20-%20UW-0.99",
         // shippingRateHandle: selectedRateHandle
       };
@@ -850,7 +888,7 @@ const ShippingAddress = ({ route, navigation }: Props) => {
       }`
 
       const variables = {
-        checkoutId,
+        cartId,
         email
       }
 
@@ -893,7 +931,7 @@ const ShippingAddress = ({ route, navigation }: Props) => {
       }
 
       const variables2 = {
-        checkoutId,
+        cartId,
         allowPartialAddresses: true,
         shippingAddress: {
           address1: address1,
@@ -1174,79 +1212,7 @@ const ShippingAddress = ({ route, navigation }: Props) => {
     );
   };
 
-  // const GooglePlacesInput = () => {
-  //   return (
-  //     <GooglePlacesAutocomplete
-  //       placeholder='4748 University Wy NE A, Seattle, WA 98105'
-  //       fetchDetails={true}
-  //       minLength={3}
-  //       onFail={error => console.log(error)}
-  //       onPress={(data, details = null) => {
-  //         bottomSheetRef.current?.close();
-  //         if (details) {
-  //           const addressComponents = details.address_components;
-  //           const address1 = `${addressComponents.find(c => c.types.includes('street_number'))?.long_name} ${addressComponents.find(c => c.types.includes('route'))?.long_name}`;
-  //           const address2 = addressComponents.find(c => c.types.includes('subpremise'))?.long_name; // This line is new
-  //           const city = addressComponents.find(c => c.types.includes('locality'))?.long_name;
-  //           const state = addressComponents.find(c => c.types.includes('administrative_area_level_1'))?.short_name;
-  //           const country = addressComponents.find(c => c.types.includes('country'))?.short_name;
-  //           const zip = addressComponents.find(c => c.types.includes('postal_code'))?.long_name;
-  //           const addressDict = {
-  //             address1: address1,
-  //             address2: address2,
-  //             city: city,
-  //             state: state,
-  //             country: country,
-  //             zip: zip
-  //           };
 
-  //           setDefaultAddress(addressDict);
-  //         }
-  //       }}
-  //       query={{
-  //         key: config.googlePlacesAutocompleteKey,
-  //         language: 'en',
-  //         location: '47.664523,-122.312821', // Latitude and longitude for REV
-  //         radius: '5000',
-  //         components: 'country:us',
-  //         strictbounds: 'true'
-  //       }}
-  //       styles={{
-  //         container: {
-  //           diplay: 'flex',
-  //           width: '100%'
-  //         },
-  //         textInput: {
-  //           height: 38,
-  //           color: '#000000',
-  //           backgroundColor: '#F0F0F0',
-  //           fontSize: 16,
-  //           borderWidth: 1,
-  //           borderColor: '#4B2D83',
-  //           borderRadius: 5,
-  //           // paddingHorizontal: 10,
-  //           paddingLeft: 4,
-  //           paddingRight: 6,
-
-  //           // backgroundColor: '#4B2D83',
-  //         },
-  //         // the autofill text
-  //         description: {
-  //           fontWeight: '400'
-  //         },
-  //         predefinedPlacesDescription: {
-  //           color: '#1faadb',
-  //         },
-  //         textInputPlaceholder: { // This is the style property for the placeholder text
-  //           color: '#FFFFFF',
-  //           fontSize: 16,
-  //         },
-  //       }}
-  //       numberOfLines={3}
-
-  //     />
-  //   );
-  // };
 
   interface Address {
     address1?: string;
@@ -1306,13 +1272,18 @@ const ShippingAddress = ({ route, navigation }: Props) => {
   return (
     <>
       {/* <KeyboardAvoidingView behavior={Platform.OS == 'ios' ? 'position' : 'height'} style={{ flex: 1 }}> */}
-      <LinearGradient colors={['#FFFFFF', '#D9D9D9', '#FFFFFF']} style={{ display: 'flex', width: '100%', height: '95%', marginTop: 8, }}>
+      <LinearGradient colors={['#FFFFFF', '#D9D9D9', '#FFFFFF']} style={{ display: 'flex', width: '100%', height: '95%', marginTop: 8 }}>
 
         {/* Container */}
         <View style={{ flex: 1, justifyContent: 'space-between', height: '100%' }}>
 
           {/* top section */}
-          <View style={{ display: 'flex', height: 110, marginBottom: 30, alignItems: 'center' }}>
+          <View style={{
+            display: 'flex',
+            height: 60,
+            // marginBottom: 30,
+            alignItems: 'center',
+          }}>
             {/* review order and price component */}
 
             {/* old pricing component */}
@@ -1330,13 +1301,12 @@ const ShippingAddress = ({ route, navigation }: Props) => {
                   <View style={{
                     width: '100%',
                     backgroundColor: '#D9D9D9',
-                    // backgroundColor: 'yellow',
                     borderTopRightRadius: 25, borderBottomRightRadius: 25, paddingTop: 5,
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     flexDirection: 'row',
-                    marginTop: 10,
+                    marginTop: 8,
                   }}>
                     <View style={{ marginLeft: 20, marginBottom: 4 }}>
                       <PinIcon size={24} color='black' />
@@ -1384,20 +1354,10 @@ const ShippingAddress = ({ route, navigation }: Props) => {
                         <ChevronDownIcon color='#4B2D83' size={25} />
                       </View>
                     </View>
-
-                    {/* <View style={{ width: '100%', backgroundColor: '#D9D9D9', borderTopRightRadius: 10, borderBottomRightRadius: 10, paddingTop: 5 }}>
-                        <Text style={{ paddingLeft: 6, fontSize: 14, fontWeight: 'bold', color: '#4B2D83' }}>
-                          Where are we delivering?
-                        </Text>
-                        <Text style={{ paddingLeft: 6, paddingBottom: 7, fontSize: 14, width: '80%' }}>
-                          Enter your address here...
-                        </Text>
-                      </View> */}
                   </>
                 )
               }
             </TouchableOpacity>
-
           </View>
 
           {/* bottom section */}
@@ -1458,13 +1418,11 @@ const ShippingAddress = ({ route, navigation }: Props) => {
 
           {/* middle container */}
           <View style={{
-            alignSelf: 'center', display: 'flex', flexDirection: 'column', width: '90%', justifyContent: 'space-between', height: '40%',
-            marginTop: '-60%'
+            alignSelf: 'center', display: 'flex', flexDirection: 'column', width: '90%', justifyContent: 'space-between', height: '60%',
           }}>
-
             {/* this is for selecting the delivery method */}
             <View style={{ marginTop: 0, width: '100%', alignItems: 'center' }}>
-              <Text style={{ marginLeft: 4, marginBottom: 12, fontWeight: '600', fontStyle: 'italic', fontSize: 16, alignSelf: 'flex-start', }}>Select Delivery Method</Text>
+              <Text style={{ marginLeft: 4, marginBottom: 8, fontWeight: '600', fontStyle: 'italic', fontSize: 16, alignSelf: 'flex-start', }}>Select Delivery Method</Text>
 
               <View style={{ display: 'flex', flexDirection: 'row', width: '80%', borderColor: 'gray', borderWidth: 1, height: 40, borderRadius: 30 }}>
                 <TouchableOpacity style={{
@@ -1489,8 +1447,8 @@ const ShippingAddress = ({ route, navigation }: Props) => {
 
 
             {/* ORDER NOTES */}
-            <View style={{ display: 'flex', marginVertical: 30 }}>
-              <Text style={{ marginLeft: 4, marginBottom: 12, fontWeight: '600', fontStyle: 'italic', fontSize: 16 }}>
+            <View style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <Text style={{ marginLeft: 4, marginBottom: 8, fontWeight: '600', fontStyle: 'italic', fontSize: 16 }}>
                 Any notes for our drivers?
               </Text>
               <ScrollView
@@ -1500,7 +1458,6 @@ const ShippingAddress = ({ route, navigation }: Props) => {
 
                 <TextInput style={{
                   width: '90%', alignSelf: 'center', height: 100,
-                  // backgroundColor: 'white',
                   borderRadius: 8, borderWidth: 1, borderColor: 'gray', padding: 6
                 }}
                   onChangeText={setOrderNotes}
@@ -1515,9 +1472,9 @@ const ShippingAddress = ({ route, navigation }: Props) => {
             </View>
 
             {/* tip container */}
-            <View style={{}}>
+            <View >
               <Text style={{ marginLeft: 4, marginBottom: 8, fontWeight: '600', fontStyle: 'italic', fontSize: 16 }}>Tip?</Text>
-              <View style={{ backgroundColor: 'purple' }} />
+
               <View style={{ width: '90%', height: 50, borderWidth: 1, borderColor: 'gray', display: 'flex', flexDirection: 'row', alignSelf: 'center', borderRadius: 12 }}>
                 {/* no tip */}
                 <TouchableOpacity style={{ width: '20%', display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: selectedTipIndex === 0 ? config.primaryColor : 'transparent', borderTopLeftRadius: 10, borderBottomLeftRadius: 10 }} onPress={() => setSelectedTipIndex(0)}>
@@ -1581,7 +1538,10 @@ const ShippingAddress = ({ route, navigation }: Props) => {
 
 
           {/* lower section */}
-          <View style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', }}>
+          <View style={{
+            width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center',
+            // height: '40%'
+          }}>
             {/* this is the pricing breakdown */}
 
             <View style={{ width: '90%', alignSelf: 'center' }}>
@@ -1590,7 +1550,10 @@ const ShippingAddress = ({ route, navigation }: Props) => {
                 styles.pricingBreakdownContainer
               }>
                 <Text style={{ textAlign: 'left', color: 'gray', fontSize: 16, fontWeight: '600' }}>Subtotal</Text>
-                <Text style={{ textAlign: 'right', color: 'gray', fontSize: 16, fontWeight: '600' }}>{subtotal?.toFixed(2)}</Text>
+                <Text style={{ textAlign: 'right', color: 'gray', fontSize: 16, fontWeight: '600' }}>
+                  {/* {subtotal.toFixed(2)} */}
+                  {subtotal.toFixed(2)}
+                </Text>
 
               </View>
               {/* <View style={{
@@ -1607,7 +1570,11 @@ const ShippingAddress = ({ route, navigation }: Props) => {
                 styles.pricingBreakdownContainer
               }>
                 <Text style={{ textAlign: 'left', color: 'gray', fontSize: 16, fontWeight: '600' }}>Delivery</Text>
-                <Text style={{ textAlign: 'right', color: 'gray', fontSize: 16, fontWeight: '600' }}>{deliveryFee?.toFixed(2)}</Text>
+                <Text style={{ textAlign: 'right', color: 'gray', fontSize: 16, fontWeight: '600' }}>
+                  {/* dont need to fixed 2 lol */}
+                  {deliveryFee.toFixed(2)}
+
+                </Text>
               </View>
 
               {/* tip */}
@@ -1615,7 +1582,11 @@ const ShippingAddress = ({ route, navigation }: Props) => {
                 styles.pricingBreakdownContainer
               }>
                 <Text style={{ textAlign: 'left', color: 'gray', fontSize: 16, fontWeight: '600' }}>Tip</Text>
-                <Text style={{ textAlign: 'right', color: 'gray', fontSize: 16, fontWeight: '600' }}>{tip?.toFixed(2)}</Text>
+                <Text style={{ textAlign: 'right', color: 'gray', fontSize: 16, fontWeight: '600' }}>
+                  {tip.toFixed(2)}
+                  {/* {tip} */}
+
+                </Text>
               </View>
 
               {/* taxes */}
@@ -1624,7 +1595,7 @@ const ShippingAddress = ({ route, navigation }: Props) => {
               }>
                 <Text style={{ textAlign: 'left', color: 'gray', fontSize: 16, fontWeight: '600' }}>Tax</Text>
                 <Text style={{ textAlign: 'right', color: 'gray', fontSize: 16, fontWeight: '600' }}>
-                  {taxes}
+                  {tax.toFixed(2)}
                 </Text>
               </View>
 
@@ -1635,15 +1606,13 @@ const ShippingAddress = ({ route, navigation }: Props) => {
               }>
                 <Text style={{ textAlign: 'left', color: 'black', fontSize: 18, fontWeight: '800' }}>Total</Text>
                 <Text style={{ textAlign: 'right', color: 'black', fontSize: 18, fontWeight: '800' }}>
-                  ${total}
+                  ${total?.toFixed(2)}
                 </Text>
               </View>
             </View>
 
             <View style={styles.checkoutContainer}>
-              {/* {errorMessage.length != 0 &&
-                <Text style={styles.error}>{errorMessage}</Text>
-              } */}
+
               {loading || !ready ? (<View style={styles.checkoutClosed}>
 
                 <ActivityIndicator />
@@ -1706,39 +1675,7 @@ const ShippingAddress = ({ route, navigation }: Props) => {
               </Text>
               <GooglePlacesInput />
             </View>
-            {/* <Image
-              source={require('../assets/Delivery_Range.png')}
-              style={{ width: 520, height: 520, marginTop: 10 }}
-              resizeMode="contain"
-            /> */}
-
           </View>
-          {/* <View
-          style={{
-            margin: 12,
-            backgroundColor: "transparent",
-            zIndex: 10,
-            height: 400,
-          }}
-        >
-          <GooglePlacesInput />
-          <TouchableOpacity onPress={updateShippingAdress} style={{ backgroundColor: '#4B2D83', width: '90%', height: 50 }}>
-            <Text>
-              Update Shipping Address
-            </Text>
-          </TouchableOpacity>
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 45 }}>
-            <View style={{ width: '85%', borderWidth: 3, padding: 20, borderRadius: 20, borderColor: '#4B2D83', marginBottom: 40 }}>
-              <Text style={styles.textDescription}>{textDescription}</Text>
-            </View>
-            <Image source={theme.dark == true ? logoDark : logo} style={styles.image} />
-            <View style={{ alignItems: 'center', justifyContent: 'center', width: 200, height: 200, }}>
-              <Text style={{ fontSize: 20, fontWeight: '600' }} >
-                PLACEHOLDER
-              </Text>
-            </View>
-          </View>
-        </View> */}
         </KeyboardAvoidingView>
       </BottomSheet >
     </>

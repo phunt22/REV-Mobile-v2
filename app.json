@@ -2,7 +2,7 @@
   "expo": {
     "name": "REV Delivery",
     "slug": "shopify-react-native-template",
-    "version": "1.1.1",
+    "version": "1.2.1",
     "orientation": "portrait",
     "icon": "./src/assets/icon.png",
     "userInterfaceStyle": "light",
@@ -17,7 +17,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.sfkunal.shopifyreactnativetemplate",
-      "buildNumber": "43",
+      "buildNumber": "49",
       "infoPlist": {
         "NSCameraUsageDescription": "This app uses the camera to enable users to scan their credit card for quicker entry",
         "NSApplePayUsageDescription": "This app integrates Apple Pay for quicker checkout",

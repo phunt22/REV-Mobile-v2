@@ -38,6 +38,8 @@ type LocationsContextType = {
   error: string | null;
   selectLocation: (location: LocationType) => void;
   resetLocation: () => void;
+  isLocationOpen: (locationId: string) => Promise<boolean>;
+  updateLocationStatus: (locationId: string, isOpen: boolean) => void;
 };
 
 const LocationsContext = createContext<LocationsContextType | undefined>(undefined);
@@ -114,7 +116,7 @@ export const LocationsProvider = ({ children }: Props) => {
     };
 
     getAllLocations();
-  }, []);
+  }, [selectedLocation]);
 
   // old method
   // takes in a locationID, and then fetches all of the inventory for that given location so that we can store it
@@ -177,7 +179,7 @@ export const LocationsProvider = ({ children }: Props) => {
   //         } finally {
   //         }
 
-  //         console.log('fetching number' + count++ + isLoading)
+  //         console('fetching number' + count++ + isLoading)
   //     }
   //     setIsLoading(false);
   //     setInventoryLevels(allInventoryLevels);
@@ -299,8 +301,43 @@ export const LocationsProvider = ({ children }: Props) => {
     setInventoryLevels([])
   };
 
+  const isLocationOpen = async (locationId: string) => {
+    const query = `
+        query {
+          location(id: "${locationId}") {
+            metafield(namespace: "custom", key: "isOpen") {
+              value
+            }
+          }
+        }
+      `;
+
+    try {
+      const response: any = await adminApiClient(query);
+      if (response.errors && response.errors.length !== 0) {
+        throw new Error(response.errors[0].message);
+      }
+
+      const isOpen = response.data.location.metafield.value === "true";
+      return isOpen;
+    } catch (error: any) {
+      console.error('Error checking if location is open:', error);
+      throw new Error(error.message);
+    }
+
+  }
+
+  const updateLocationStatus = (locationId: string, isOpen: boolean) => {
+    setLocations(prevLocations => prevLocations.map(location =>
+      location.id === locationId ? { ...location, isOpen } : location
+    ));
+  };
+
+
+
+
   return (
-    <LocationsContext.Provider value={{ locations, selectedLocation, inventoryLevels, productIds, isLoading, error, selectLocation, resetLocation }}>
+    <LocationsContext.Provider value={{ locations, selectedLocation, inventoryLevels, productIds, isLoading, error, selectLocation, resetLocation, isLocationOpen, updateLocationStatus }}>
       {children}
     </LocationsContext.Provider>
   );

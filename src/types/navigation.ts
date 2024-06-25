@@ -3,7 +3,7 @@ import { AvailableShippingRatesType, Product } from "./dataTypes";
 export type StackParamList = {
   TabNavigator: undefined
   ProductScreen: { data: Product }
-  ShippingAddress: { checkoutId: string, totalPrice: number }
+  ShippingAddress: { cartId: string, totalPrice: number, tax: number }
   ShippingOptions: { checkoutId: string }
   Payment: { webUrl: string, checkoutId: string, selectedRateHandle: string }
   DiscountCode: { checkoutId: string }
@@ -14,6 +14,7 @@ export type StackParamList = {
     params?: SearchStackParamList[keyof SearchStackParamList];
   };
   OrderConfirmation: undefined
+  PickupConfirmation: undefined
 }
 
 export type BottomTabParamList = {
@@ -44,11 +45,12 @@ export type SearchStackParamList = {
 
 export type CartStackParamList = {
   Cart: undefined;
-  ShippingAddress: { checkoutId: string, totalPrice: number }
+  ShippingAddress: { cartId: string, totalPrice: number, tax: number }
   ShippingOptions: { checkoutId: string, availableShippingRates: AvailableShippingRatesType }
   Payment: { webUrl: string, checkoutId: string, selectedRateHandle: string }
   DiscountCode: { checkoutId: string }
   OrderConfirmation: undefined
+  PickupConfirmation: undefined
 }
 
 export type ProfileStackParamList = {
